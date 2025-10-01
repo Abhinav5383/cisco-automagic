@@ -1,0 +1,411 @@
+import type { Locator } from "@playwright/test";
+import { sleep } from "bun";
+import type { CiscoBot } from "../main";
+import { type AnswerObj, QuestionType } from "../types";
+import { waitForUserIntervention } from "../utils/prompt";
+import type { BotUtilities } from "./bot-utils";
+import { click, forceClick } from "./misc";
+
+const ANSWERS = new Map<string, AnswerObj>();
+
+export class ExamHelper {
+    private utils: BotUtilities;
+    private section: Locator;
+    private totalQuestions = 0;
+
+    constructor(parent: CiscoBot, section: Locator) {
+        this.utils = parent.utils;
+        this.section = section;
+    }
+
+    static async isExamSection(section: Locator) {
+        const examPageHints = section
+            .locator("div.secure-one-question__widget")
+            .or(section.locator("div.assesment-1q"));
+
+        return (await examPageHints.count()) > 0;
+    }
+
+    static async isExamComplete(section: Locator) {
+        if (!(await ExamHelper.isExamSection(section))) {
+            return true;
+        }
+
+        const completionSection = section.locator(
+            ".assessment-result-component.is-complete .assessmentResults__body",
+        );
+        if (
+            (await completionSection.count()) &&
+            (await completionSection.innerText()).includes("passed")
+        ) {
+            console.log("Exam already complete!");
+            return true;
+        }
+
+        return false;
+    }
+
+    private get examStartButton() {
+        return this.section.locator(".start-button[role='button']");
+    }
+    private get examResetButton() {
+        return this.section.locator("button.assessmentResults__retry-btn");
+    }
+
+    private get questionsLocator() {
+        return this.section.locator("div.block__container.u-clearfix div.component.is-question");
+    }
+
+    static getUniqueQuestionId(question: Locator) {
+        return question.getAttribute("data-socialgoodpulse-id");
+    }
+
+    private get questionSubmitBtn() {
+        return this.section.locator("div.abs__btn-arrow-container button.submit-button");
+    }
+    private async submitQuestion() {
+        await forceClick(this.questionSubmitBtn);
+    }
+
+    private get skipQuestionButton() {
+        return this.section.locator("label[for='skip-question']");
+    }
+    private async skipQuestion() {
+        await click(this.skipQuestionButton);
+    }
+
+    private get skipAllButton() {
+        return this.section.locator("label[for='skip-all-question']");
+    }
+    private async skipAllQuestions() {
+        await click(this.skipAllButton);
+        await forceClick(this.skipAllButton);
+    }
+
+    private async waitForFinalSubmitScreen() {
+        try {
+            await this.section
+                .locator("div.component .final-screen-inner .assessment-status")
+                .waitFor({
+                    state: "attached",
+                    timeout: 60000,
+                });
+        } catch {}
+    }
+
+    private get assessmentFinalSubmitButton() {
+        return this.section.locator("button.adaptive-assessment-submit");
+    }
+    private async submitAssessment() {
+        await this.waitForFinalSubmitScreen();
+        await this.section.locator("input[type='checkbox']#confirm-exam").check();
+        await click(this.assessmentFinalSubmitButton);
+    }
+
+    private async submitOrSkipQuestion() {
+        if ((await this.questionSubmitBtn.getAttribute("class"))?.includes("is-disabled")) {
+            console.log("Skipping question as submit button is not enabled.");
+            await this.skipQuestion();
+        } else {
+            await this.submitQuestion();
+        }
+    }
+
+    isModuleTypeExam(_text: string | null) {
+        if (!_text) return false;
+        const text = _text.toLowerCase();
+
+        if (
+            text.includes("module") &&
+            (text.includes("test") || text.includes("quiz") || text.includes("assessment"))
+        ) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    static async determineQuestionType(question: Locator): Promise<QuestionType | null> {
+        const classList = await question.getAttribute("class");
+        if (classList?.includes("mcq")) {
+            return QuestionType.MCQ;
+        } else if (classList?.includes("objectmatching")) {
+            return QuestionType.OBJECT_MATCH;
+        }
+
+        return null;
+    }
+
+    private async beginExam() {
+        if (await this.skipQuestionButton.isVisible()) {
+            console.log("Exam already started, skipping start button click.");
+        } else {
+            console.log("Starting exam...");
+            await forceClick(this.examStartButton);
+        }
+    }
+
+    static async extractAnswer(question: Locator): Promise<AnswerObj | null> {
+        const questionType = await ExamHelper.determineQuestionType(question);
+        if (!questionType) return null;
+
+        switch (questionType) {
+            case QuestionType.MCQ: {
+                return await new MCQ_Helper(question).extractCorrectAnswer();
+            }
+
+            case QuestionType.OBJECT_MATCH: {
+                return await new ObjectMatch_Helper(question).extractCorrectAnswer();
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    private async gatherAnswers() {
+        const moduleTitle = await this.utils.getSectionHeaderText(this.section);
+        const iterations = this.isModuleTypeExam(moduleTitle) ? 1 : 3;
+
+        for (let i = 0; i < iterations; i++) {
+            await this.beginExam();
+
+            await this.skipAllQuestions();
+            await this.submitAssessment();
+
+            await sleep(500);
+            await click(this.section.locator("button.review-assessment-button"));
+
+            const questions = await this.questionsLocator.all();
+
+            for (const question of questions) {
+                const answer = await ExamHelper.extractAnswer(question);
+                if (answer) ANSWERS.set(answer.qestionId, answer);
+            }
+            if (this.totalQuestions === 0) this.totalQuestions = questions.length;
+
+            await click(this.examResetButton);
+            await sleep(300);
+        }
+    }
+
+    private async answerQuestions() {
+        if (!this.totalQuestions) {
+            throw new Error("No questions detected!");
+        }
+
+        let questionsSkipped = 0;
+
+        for (let i = 0; i < this.totalQuestions; i++) {
+            await sleep(50);
+
+            const question = (await this.questionsLocator.all()).pop();
+            if (!question) break;
+
+            const questionId = await ExamHelper.getUniqueQuestionId(question);
+            if (!questionId) break;
+
+            const correctAns = ANSWERS.get(questionId);
+            if (!correctAns) {
+                console.log("Answer not found, Skipping question!");
+                questionsSkipped++;
+                await this.skipQuestion();
+                continue;
+            }
+
+            console.log(
+                `Question (${questionId}) ${i + 1}/${this.totalQuestions}, Type: ${correctAns.type}, Answer:`,
+                correctAns.answer,
+            );
+
+            if (correctAns.type === QuestionType.MCQ) {
+                await new MCQ_Helper(question).answer(correctAns.answer);
+            } else if (correctAns.type === QuestionType.OBJECT_MATCH) {
+                await new ObjectMatch_Helper(question).answer(correctAns.answer);
+            }
+
+            await sleep(100);
+            await this.submitOrSkipQuestion();
+        }
+
+        if (await this.section.locator("button.submit-button div.submit").count()) {
+            await sleep(100);
+            await this.skipAllQuestions();
+        }
+
+        const requiredQuestionsToAnswer = Math.ceil(0.7 * this.totalQuestions);
+        if (this.totalQuestions - questionsSkipped < requiredQuestionsToAnswer) {
+            const moreToAnswer =
+                requiredQuestionsToAnswer - (this.totalQuestions - questionsSkipped);
+            await waitForUserIntervention(
+                `Skipped ${questionsSkipped} out of ${this.totalQuestions} questions. Please answer at least ${moreToAnswer} more question(s).`,
+            );
+        }
+
+        await this.waitForFinalSubmitScreen();
+        await this.submitAssessment();
+        await sleep(1000);
+    }
+
+    async doExam() {
+        if (await ExamHelper.isExamComplete(this.section)) return;
+        if (await this.examResetButton.isVisible()) await click(this.examResetButton);
+
+        await this.gatherAnswers();
+        await this.beginExam();
+        await this.answerQuestions();
+    }
+}
+
+export class MCQ_Helper {
+    question: Locator;
+
+    constructor(question: Locator) {
+        this.question = question;
+    }
+
+    get answerOptions() {
+        return this.question.locator("div.mcq__widget .mcq__item");
+    }
+    get correctAnswerOptions() {
+        return this.question.locator("div.mcq__widget .mcq__item.is-correct");
+    }
+
+    async getOptionIdentifier(option: Locator) {
+        return option.locator("input").getAttribute("data-socialgoodpulse-index");
+    }
+
+    async selectAnswer(option: Locator) {
+        const label = option.locator("label");
+        await label.click();
+    }
+
+    async answer(answers: string[]) {
+        const options = await this.answerOptions.all();
+
+        for (const opt of options) {
+            const optionId = await this.getOptionIdentifier(opt);
+            if (!optionId) continue;
+
+            if (answers.includes(optionId)) {
+                await this.selectAnswer(opt);
+            }
+        }
+    }
+
+    async pseudoAnswer() {
+        const options = await this.answerOptions.all();
+        if (options.length === 0) return;
+
+        for (const opt of options) {
+            await this.selectAnswer(opt);
+        }
+    }
+
+    async extractCorrectAnswer(): Promise<AnswerObj | null> {
+        const questionId = await ExamHelper.getUniqueQuestionId(this.question);
+        if (!questionId) return null;
+
+        const AnswerObj: AnswerObj = {
+            qestionId: questionId,
+            type: QuestionType.MCQ,
+            answer: [] as string[],
+        };
+        const correctAnswers = await this.correctAnswerOptions.all();
+
+        for (const answer of correctAnswers) {
+            const ansId = await this.getOptionIdentifier(answer);
+            if (ansId) AnswerObj.answer.push(ansId);
+        }
+
+        return AnswerObj;
+    }
+}
+
+export class ObjectMatch_Helper {
+    question: Locator;
+
+    constructor(question: Locator) {
+        this.question = question;
+    }
+
+    get lhsOptions() {
+        return this.question.locator("div.categories-container .item button");
+    }
+    get rhsOptions() {
+        return this.question.locator("div.options-container .item button");
+    }
+
+    async getOptionIdentifier(option: Locator) {
+        const text = await option.locator(".category-item-text").textContent();
+        if (!text) return null;
+
+        return text.trim();
+    }
+
+    async selectAnswer(lhs: Locator, rhs: Locator) {
+        await click(lhs);
+        await sleep(10);
+        await click(rhs);
+        await sleep(10);
+    }
+
+    async answer(answer: Map<string, string>) {
+        const lhsItems = await this.lhsOptions.all();
+        const rhsItems = await this.rhsOptions.all();
+
+        for (const lhs of lhsItems) {
+            const lhsText = await this.getOptionIdentifier(lhs);
+            if (!lhsText) continue;
+
+            const correctOptionId = answer.get(lhsText);
+            if (!correctOptionId) return;
+
+            for (const rhs of rhsItems) {
+                if ((await this.getOptionIdentifier(rhs)) === correctOptionId) {
+                    await this.selectAnswer(lhs, rhs);
+                }
+            }
+        }
+    }
+
+    async pseudoAnswer() {
+        const lhsItems = await this.lhsOptions.all();
+        const rhsItems = await this.rhsOptions.all();
+
+        for (let i = 0; i < lhsItems.length; i++) {
+            const lhs = lhsItems[i];
+            const rhs = rhsItems[i];
+            if (!lhs || !rhs) continue;
+
+            await this.selectAnswer(lhs, rhs);
+        }
+    }
+
+    async extractCorrectAnswer(): Promise<AnswerObj | null> {
+        const questionId = await ExamHelper.getUniqueQuestionId(this.question);
+        if (!questionId) return null;
+
+        const AnswerObj: AnswerObj = {
+            qestionId: questionId,
+            type: QuestionType.OBJECT_MATCH,
+            answer: new Map<string, string>(),
+        };
+        const feedbackTable = await this.question.locator(".table-feedback tr").all();
+        for (const row of feedbackTable) {
+            const [lhs, rhs] = await row.locator("td").all();
+            if (!lhs || !rhs) continue;
+
+            const lhsText = (await lhs.textContent())?.trim();
+            const rhsText = (await rhs.textContent())?.trim();
+            if (!lhsText || !rhsText) continue;
+
+            AnswerObj.answer.set(lhsText.trim(), rhsText.trim());
+        }
+
+        if (AnswerObj.answer.size === 0) return null;
+        return AnswerObj;
+    }
+}
+
+// export class DropdownSelect_Helper {}

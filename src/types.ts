@@ -1,6 +1,6 @@
 export enum QuestionType {
     MCQ = "mcq",
-    MATCH = "match",
+    OBJECT_MATCH = "match",
     DROPDOWN_SELECT = "dropdown_select",
 }
 
@@ -12,7 +12,7 @@ export type AnswerObj =
       }
     | {
           qestionId: string;
-          type: QuestionType.MATCH | QuestionType.DROPDOWN_SELECT;
+          type: QuestionType.OBJECT_MATCH | QuestionType.DROPDOWN_SELECT;
           // question_text : answer_text
           answer: Map<string, string>;
       };
