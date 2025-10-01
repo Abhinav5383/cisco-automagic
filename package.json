@@ -1,0 +1,13 @@
+{
+    "name": "new",
+    "module": "src/main.ts",
+    "type": "module",
+    "private": true,
+    "devDependencies": {
+        "@playwright/test": "^1.55.1",
+        "@types/bun": "latest"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    }
+}
