@@ -29,7 +29,8 @@ export class ActivityHelper {
 
     async doActivities() {
         const ActivityTypes = [
-            SingleAssessmentActivity,
+            MultiQuestionAssessment_Activity,
+            SingleQuestionSectionQuiz_Activity,
             VideoPlayerActivity,
             ContentLinksActivity,
             AccordionActivity,
@@ -57,7 +58,7 @@ class ActivityBase {
     }
 }
 
-class SingleAssessmentActivity extends ActivityBase {
+class MultiQuestionAssessment_Activity extends ActivityBase {
     static async isInside(section: Locator) {
         return (await section.getAttribute("class"))?.includes("assessmentsinglesubmit");
     }
@@ -396,16 +397,11 @@ class ContentTabsActivity extends ActivityBase {
 
 class CheckYourAnswerActivity extends ActivityBase {
     static async isInside(section: Locator) {
-        return (
-            (await section
-                .locator(".component__widget .btn__container button")
-                .getByText("Check")
-                .count()) > 0
-        );
+        return (await section.locator(".component__widget button").getByText("Check").count()) > 0;
     }
 
     private get buttonContainers() {
-        return this.section.locator(".component__widget .btn__container:has(button)").all();
+        return this.section.locator(".component__widget").all();
     }
     private getCheckAnswerBtn(container: Locator) {
         return container.locator("button").getByText("Check");
@@ -421,6 +417,8 @@ class CheckYourAnswerActivity extends ActivityBase {
         }
 
         const checkAnswerBtn = this.getCheckAnswerBtn(container);
+        if (!(await checkAnswerBtn.count())) return;
+
         await click(checkAnswerBtn);
 
         if (await this.activityHelper.notifyPopupCloseBtn.count()) {
@@ -456,5 +454,66 @@ class CheckYourAnswerActivity extends ActivityBase {
             "Marry! The wisdom of the realm hath spoken through these answers!",
             "Zounds! Each question hath confessed, leaving naught but enlightenment!",
         ]);
+    }
+}
+
+class SingleQuestionSectionQuiz_Activity extends ActivityBase {
+    static async isInside(section: Locator) {
+        const questionBox = section.locator(".component.is-question");
+        const hasQuestions = (await questionBox.count()) > 0;
+        const hasSubmitBtn = await questionBox
+            .locator(".btn__container button")
+            .getByText("submit")
+            .count();
+
+        return hasQuestions && hasSubmitBtn;
+    }
+
+    private get questions() {
+        return this.section.locator(".component.is-question").all();
+    }
+    private getSubmitButton(question: Locator) {
+        return question.locator(".btn__container button").getByText("submit");
+    }
+    private getResetButton(question: Locator) {
+        return question.locator(".btn__container button").getByText("reset");
+    }
+
+    static async isCorrect(question: Locator) {
+        return (await question.locator("div.component__widget.is-complete").count()) > 0;
+    }
+
+    private async answerQuestion(question: Locator) {
+        // just in case
+        if (await this.getResetButton(question).count()) {
+            await forceClick(this.getResetButton(question));
+        }
+
+        const testFn = async () => {
+            await forceClick(this.getSubmitButton(question));
+            await this.activityHelper.closeNotifyPopup();
+            await forceClick(this.getResetButton(question));
+
+            return await SingleQuestionSectionQuiz_Activity.isCorrect(question);
+        };
+
+        const questionHelper = await ExamHelper.constructQuestionHelper(question);
+        if (!questionHelper) return;
+
+        await questionHelper.guessAnswer(testFn);
+    }
+
+    async doActivity() {
+        console.log("Doing Single Question Section Quiz...");
+
+        for (const question of await this.questions) {
+            if (await SingleQuestionSectionQuiz_Activity.isCorrect(question)) {
+                continue;
+            }
+            await this.answerQuestion(question);
+            await sleep(100);
+        }
+
+        console.log("Completed Single Question Section Quiz.");
     }
 }

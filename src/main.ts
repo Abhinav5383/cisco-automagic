@@ -29,7 +29,13 @@ export class CiscoBot {
         const browser = await chromium.launch({
             executablePath: "/usr/bin/chromium",
             headless: false,
-            args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-maximized"],
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--start-maximized",
+                "--disable-threaded-animation",
+                "--disable-animations",
+            ],
         });
         const page = await browser.newPage();
 
@@ -65,59 +71,9 @@ export class CiscoBot {
     }
 
     private async navigateToChosenCourse() {
-        const page = this.page;
-
-        if (!env.COURSE_URL && !env.COURSE_NAME) {
-            throw new Error(
-                "Zounds! Thou must provide a COURSE_URL or COURSE_NAME in the .env file!",
-            );
-        }
-
-        // Goto course page
-        if (env.COURSE_URL) {
-            await page.goto(env.COURSE_URL);
-        }
-        // Click on the course card link
-        else if (env.COURSE_NAME) {
-            if (!page.url().includes("www.netacad.com/dashboard")) {
-                await page.goto("https://www.netacad.com/dashboard");
-            }
-
-            const courseLink = page
-                .locator(`button[aria-label='${env.COURSE_NAME}']`)
-                .or(page.locator(`button[aria-label='Resume ${env.COURSE_NAME}']`));
-
-            await courseLink.click();
-            await page.waitForLoadState("load");
-        }
-
         await waitForUserIntervention(
             "Please navigate to the desired module manually and then press 'Enter' here to proceed.",
         );
-    }
-
-    private async startScrollingModules() {
-        const sections: Locator[] = [];
-
-        for (const section of await this.utils.getSections().all()) {
-            if (!(await this.utils.getSectionHeaderText(section))) continue;
-            sections.push(section);
-        }
-
-        let focusedInside = false;
-
-        for (const section of sections) {
-            try {
-                if (!focusedInside) {
-                    await section.click();
-                    focusedInside = true;
-                }
-
-                await this.completeSection(section);
-            } catch (err) {
-                console.error("Error completing section activities:", err);
-            }
-        }
     }
 
     private async completeSection(section: Locator) {
@@ -145,6 +101,33 @@ export class CiscoBot {
         }
 
         await this.page.keyboard.press("PageDown");
+        await sleep(150);
+    }
+
+    private async startScrollingModules() {
+        const sections: Locator[] = [];
+
+        for (const section of await this.utils.getSections().all()) {
+            if (!(await this.utils.getSectionHeaderText(section))) continue;
+            sections.push(section);
+        }
+
+        let focusedInside = false;
+
+        for (const section of sections) {
+            try {
+                if (!focusedInside) {
+                    await section.click();
+                    focusedInside = true;
+                }
+
+                await this.completeSection(section);
+            } catch (err) {
+                console.error("Error completing section activities:", err);
+            }
+        }
+
+        await this.page.keyboard.press("End");
         await sleep(150);
     }
 

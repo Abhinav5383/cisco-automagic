@@ -2,7 +2,7 @@ import type { Locator } from "@playwright/test";
 import { sleep } from "bun";
 import type { CiscoBot } from "../main";
 import { type AnswerObj, QuestionType } from "../types";
-import { random } from "../utils";
+import { combinations, random } from "../utils";
 import { waitForUserIntervention } from "../utils/prompt";
 import type { BotUtilities } from "./bot-utils";
 import { click, forceClick } from "./misc";
@@ -32,13 +32,8 @@ export class ExamHelper {
             return true;
         }
 
-        const completionSection = section.locator(
-            ".assessment-result-component.is-complete .assessmentResults__body",
-        );
-        if (
-            (await completionSection.count()) &&
-            (await completionSection.innerText()).includes("passed")
-        ) {
+        const completionSection = section.getByText("you have passed the exam");
+        if (await completionSection.count()) {
             console.log("Exam already complete!");
             return true;
         }
@@ -186,16 +181,10 @@ export class ExamHelper {
     }
 
     static async answerQuestion(question: Locator, correctAnswer: AnswerObj) {
-        switch (correctAnswer.type) {
-            case QuestionType.MCQ:
-                return await new MCQ_Helper(question).answer(correctAnswer.answer);
+        const questionHelper = await ExamHelper.constructQuestionHelper(question);
+        if (!questionHelper) return null;
 
-            case QuestionType.OBJECT_MATCH:
-                return await new ObjectMatch_Helper(question).answer(correctAnswer.answer);
-
-            default:
-                return null;
-        }
+        await questionHelper.answer(correctAnswer);
     }
 
     static async extractAnswer(question: Locator): Promise<AnswerObj | null> {
@@ -320,37 +309,44 @@ export class MCQ_Helper {
         this.question = question;
     }
 
-    get answerOptions() {
-        return this.question.locator("div.mcq__widget .mcq__item").all();
+    private get optionLocator() {
+        return this.question.locator("div.mcq__widget .mcq__item");
     }
-    get correctAnswerOptions() {
+    private get options() {
+        return this.optionLocator.all();
+    }
+    private get correctOptions() {
         return this.question.locator("div.mcq__widget .mcq__item.is-correct").all();
     }
 
-    async getOptionIdentifier(option: Locator) {
+    private async getOptionIdentifier(option: Locator) {
         return option.locator("input").getAttribute("data-socialgoodpulse-index");
     }
 
-    async selectAnswer(option: Locator) {
+    private async selectAnswer(option: Locator) {
         const label = option.locator("label");
         await label.click();
     }
 
-    async answer(answers: string[]) {
-        const options = await this.answerOptions;
+    async answer(answerObj: AnswerObj) {
+        if (answerObj.type !== QuestionType.MCQ) {
+            throw new Error(`Invalid answer type for MCQ_Helper: ${answerObj.type}`);
+        }
+
+        const options = await this.options;
 
         for (const opt of options) {
             const optionId = await this.getOptionIdentifier(opt);
             if (!optionId) continue;
 
-            if (answers.includes(optionId)) {
+            if (answerObj.answer.includes(optionId)) {
                 await this.selectAnswer(opt);
             }
         }
     }
 
-    async pseudoAnswer() {
-        const options = await this.answerOptions;
+    async justAnswerIt() {
+        const options = await this.options;
         if (options.length === 0) return;
 
         for (const opt of options) {
@@ -367,7 +363,7 @@ export class MCQ_Helper {
             type: QuestionType.MCQ,
             answer: [] as string[],
         };
-        const correctAnswers = await this.correctAnswerOptions;
+        const correctAnswers = await this.correctOptions;
 
         for (const answer of correctAnswers) {
             const ansId = await this.getOptionIdentifier(answer);
@@ -375,6 +371,79 @@ export class MCQ_Helper {
         }
 
         return AnswerObj;
+    }
+
+    private async maxSelectableOptions() {
+        // Single choice question
+        if (await this.optionLocator.locator("input[type='radio']").count()) {
+            return 1;
+        }
+
+        // Click on all options and count how many get selected
+        await this.justAnswerIt();
+        const selectedOptions = await this.optionLocator.locator("label.is-selected").count();
+        return selectedOptions;
+    }
+
+    private async guessSingleChoiceAnswer(testFn: () => Promise<boolean>) {
+        const options = await this.options;
+
+        for (const opt of options) {
+            await this.selectAnswer(opt);
+
+            if (await testFn()) {
+                const id = await this.getOptionIdentifier(opt);
+                if (id) return [id];
+                break;
+            }
+        }
+
+        return [];
+    }
+
+    private async guessMultiChoiceAnswer(maxSelectable: number, testFn: () => Promise<boolean>) {
+        const options = await this.options;
+        if (maxSelectable === 0) {
+            console.error("Could not determine max selectable options for MCQ.");
+            return [];
+        }
+
+        for (const guess of combinations(maxSelectable, options)) {
+            for (const opt of guess) {
+                await this.selectAnswer(opt);
+            }
+
+            if (await testFn()) {
+                const answerIds = [];
+                for (const opt of guess) {
+                    const id = await this.getOptionIdentifier(opt);
+                    if (id) answerIds.push(id);
+                }
+                return answerIds;
+            }
+        }
+
+        return [];
+    }
+
+    async guessAnswer(testFn: () => Promise<boolean>) {
+        const questionId = await ExamHelper.getUniqueQuestionId(this.question);
+        if (!questionId) return null;
+
+        let answers: string[];
+
+        const maxSelectable = await this.maxSelectableOptions();
+        if (maxSelectable === 1) {
+            answers = await this.guessSingleChoiceAnswer(testFn);
+        } else {
+            answers = await this.guessMultiChoiceAnswer(maxSelectable, testFn);
+        }
+
+        return {
+            type: QuestionType.MCQ,
+            answer: answers,
+            qestionId: questionId,
+        } satisfies AnswerObj;
     }
 }
 
@@ -385,28 +454,32 @@ export class ObjectMatch_Helper {
         this.question = question;
     }
 
-    get lhsOptions() {
+    private get lhsOptions() {
         return this.question.locator("div.categories-container .item button").all();
     }
-    get rhsOptions() {
+    private get rhsOptions() {
         return this.question.locator("div.options-container .item button").all();
     }
 
-    async getOptionIdentifier(option: Locator) {
+    private async getOptionIdentifier(option: Locator) {
         const text = await option.locator(".category-item-text").textContent();
         if (!text) return null;
 
         return text.trim();
     }
 
-    async selectAnswer(lhs: Locator, rhs: Locator) {
+    private async selectAnswer(lhs: Locator, rhs: Locator) {
         await click(lhs);
         await sleep(10);
         await click(rhs);
         await sleep(10);
     }
 
-    async answer(answer: Map<string, string>) {
+    async answer(answerObj: AnswerObj) {
+        if (answerObj.type !== QuestionType.OBJECT_MATCH) {
+            throw new Error(`Invalid answer type for ObjectMatch_Helper: ${answerObj.type}`);
+        }
+
         const lhsItems = await this.lhsOptions;
         const rhsItems = await this.rhsOptions;
 
@@ -414,7 +487,7 @@ export class ObjectMatch_Helper {
             const lhsText = await this.getOptionIdentifier(lhs);
             if (!lhsText) continue;
 
-            const correctOptionId = answer.get(lhsText);
+            const correctOptionId = answerObj.answer.get(lhsText);
             if (!correctOptionId) return;
 
             for (const rhs of rhsItems) {
@@ -425,7 +498,7 @@ export class ObjectMatch_Helper {
         }
     }
 
-    async pseudoAnswer() {
+    async justAnswerIt() {
         const lhsItems = await this.lhsOptions;
         const rhsItems = await this.rhsOptions;
 
@@ -462,6 +535,9 @@ export class ObjectMatch_Helper {
         if (AnswerObj.answer.size === 0) return null;
         return AnswerObj;
     }
-}
 
-// export class DropdownSelect_Helper {}
+    async guessAnswer(_testFn: () => Promise<boolean>) {
+        // Too expensive to brute force
+        return null;
+    }
+}

@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { sleep } from "bun";
-import { click } from "./misc";
+import { forceClick } from "./misc";
 
 export class BotUtilities {
     page: Page;
@@ -49,6 +49,16 @@ export class BotUtilities {
         } else {
             return false;
         }
+    }
+
+    async getFirstNonEmptyHeaderText() {
+        const sections = await this.getSections().all();
+        for (const section of sections) {
+            const headerText = await this.getSectionHeaderText(section);
+            if (headerText?.trim()) return headerText;
+        }
+
+        return null;
     }
 
     async waitForNextBtnToBeEnabled() {
@@ -124,12 +134,26 @@ export class BotUtilities {
         await this.waitForCourseContentToLoad();
     }
 
-    async goToNextSubModule() {
+    async goToNextSubModule(retry = true): Promise<boolean> {
+        const prevPageMark = await this.getFirstNonEmptyHeaderText();
+
         await this.waitForNextBtnToBeEnabled();
         if ((await this.nextBtn.getAttribute("disabled")) !== null) return false;
 
-        await click(this.nextBtn);
+        await forceClick(this.nextBtn);
         await this.waitForLoadersToDisappear();
+
+        const newPageMark = await this.getFirstNonEmptyHeaderText();
+        if (retry && (prevPageMark || newPageMark) && prevPageMark === newPageMark) {
+            let tries = 30;
+            while (tries-- > 0) {
+                await sleep(300);
+                const newPageMark = await this.getFirstNonEmptyHeaderText();
+                if ((prevPageMark || newPageMark) && prevPageMark !== newPageMark) return true;
+            }
+
+            return await this.goToNextSubModule(false);
+        }
 
         return true;
     }
