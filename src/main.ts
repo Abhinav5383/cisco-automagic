@@ -4,6 +4,7 @@ import { ActivityHelper } from "./helpers/activity";
 import { BotUtilities } from "./helpers/bot-utils";
 import { ExamHelper } from "./helpers/exam";
 import { doLogin } from "./helpers/login";
+import { random } from "./utils";
 import env from "./utils/env";
 import { waitForUserIntervention } from "./utils/prompt";
 
@@ -37,6 +38,8 @@ export class CiscoBot {
     }
 
     async start() {
+        console.log(this.welcomeMessage);
+
         await doLogin(this.page, env.USERNAME, env.PASSWORD);
         await this.navigateToChosenCourse();
 
@@ -66,7 +69,7 @@ export class CiscoBot {
 
         if (!env.COURSE_URL && !env.COURSE_NAME) {
             throw new Error(
-                "Either COURSE_URL or COURSE_NAME must be provided in the environment variables.",
+                "Zounds! Thou must provide a COURSE_URL or COURSE_NAME in the .env file!",
             );
         }
 
@@ -143,5 +146,15 @@ export class CiscoBot {
 
         await this.page.keyboard.press("PageDown");
         await sleep(150);
+    }
+
+    private get welcomeMessage() {
+        return random([
+            "Hark! Thy humble automaton doth awaken, ready for deeds most noble and absurd!",
+            "Lo and behold! Thy bot doth stir from slumber, gears squeakin’ like a tipsy lute-player!",
+            "Ho there! Thy trusty automaton rises, prepared for tasks both foolish and grand!",
+            "Behold! Thy bot awakens, circuits buzzing like a jester at a royal feast!",
+            "Greetings! Thy faithful automaton doth arise, ready to embark on quests most whimsical!",
+        ]);
     }
 }

@@ -2,6 +2,7 @@ import type { FrameLocator, Locator, Page } from "@playwright/test";
 import { sleep } from "bun";
 import type { CiscoBot } from "../main";
 import type { AnswerObj } from "../types";
+import { random } from "../utils";
 import type { BotUtilities } from "./bot-utils";
 import { ExamHelper } from "./exam";
 import { click, forceClick } from "./misc";
@@ -27,7 +28,7 @@ export class ActivityHelper {
     }
 
     async doActivities() {
-        const ActivitiTypes = [
+        const ActivityTypes = [
             SingleAssessmentActivity,
             VideoPlayerActivity,
             ContentLinksActivity,
@@ -36,13 +37,15 @@ export class ActivityHelper {
             CheckYourAnswerActivity,
         ];
 
-        for (const ActivityType of ActivitiTypes) {
+        for (const ActivityType of ActivityTypes) {
             if (await ActivityType.isInside(this.section)) {
                 await new ActivityType(this).doActivity();
             }
         }
     }
 }
+
+// ? Classes for each activity type
 
 class ActivityBase {
     activityHelper: ActivityHelper;
@@ -144,9 +147,26 @@ class SingleAssessmentActivity extends ActivityBase {
             await this.resetAssessment();
         }
 
-        console.log("Doing assessment activity...");
+        console.log(this.startMsg);
         await this.doAssessment();
-        console.log("Assessment activity complete...");
+        console.log(this.completedMsg);
+    }
+
+    private get startMsg() {
+        return random([
+            "Lo! We embark upon the assessment adventure...",
+            "By my troth! The trials of questions we now face...",
+            "Hark! Time to wrestle with riddles and scrolls most fiendish...",
+            "Onward, to the realm of questions and answers we go...",
+        ]);
+    }
+
+    private get completedMsg() {
+        return random([
+            "Huzzah! Assessment completed, forsooth...",
+            "Marry! The questions hath been conquered!",
+            "Gramercy! The final answer hath been delivered unto the realm...",
+        ]);
     }
 }
 
@@ -190,14 +210,30 @@ class VideoPlayerActivity extends ActivityBase {
     }
 
     async doActivity() {
-        console.log("Doing video activity...");
+        console.log(this.startMsg);
 
         for (const videoContainer of await this.videoIFrames.all()) {
             if (await videoContainer.isHidden()) continue;
             await this.watchVideo(videoContainer.contentFrame());
         }
 
-        console.log("Video activity complete...");
+        console.log(this.completedMsg);
+    }
+
+    private get startMsg() {
+        return random([
+            "Hark! Time to watch moving pictures and pretend we understand them...",
+            "Lo! Let us feast our eyes upon the magic of the screen!",
+            "By my troth, the cinema awaits! Watch we must...",
+        ]);
+    }
+
+    private get completedMsg() {
+        return random([
+            "The moving pictures hath ended, mine eyes are weary!",
+            "Gramercy! The video playeth no more!",
+            "Zounds! All scenes have been viewed and the tale concludes...",
+        ]);
     }
 }
 
@@ -230,7 +266,7 @@ class ContentLinksActivity extends ActivityBase {
     }
 
     async doActivity() {
-        console.log("Doing content links activity...");
+        console.log(this.startMsg);
 
         for (const widget of await this.contentLinks.all()) {
             try {
@@ -240,7 +276,29 @@ class ContentLinksActivity extends ActivityBase {
             }
         }
 
-        console.log("Content links activity complete...");
+        console.log(this.completedMsg);
+    }
+
+    private get startMsg() {
+        return random([
+            "Clicketh we now upon these mystical content links...",
+            "Zounds! Let us explore links as knights seek treasure!",
+            "By my troth, these hyperlinks shall yield their secrets...",
+            "Hark! The path of knowledge lies within these links...",
+            "Onward, to click and discover we go...",
+            "Lo! The adventure of link-clicking awaits...",
+        ]);
+    }
+
+    private get completedMsg() {
+        return random([
+            "All links have been clicked (or ignored most nobly)!",
+            "Huzzah! The links hath been conquered!",
+            "Marry! No hyperlink doth remain unturned...",
+            "Gramercy! The final link hath been clicked unto the realm...",
+            "The hyperlinks hath yielded their secrets, forsooth...",
+            "The quest of link-clicking is complete, mine friends...",
+        ]);
     }
 }
 
@@ -257,12 +315,32 @@ class AccordionActivity extends ActivityBase {
     }
 
     async doActivity() {
-        console.log("Doing accordion activity...");
+        console.log(this.startMsg);
+
         for (const acc of await this.accordions) {
             await acc.click();
             await sleep(100);
         }
-        console.log("Accordion activity complete...");
+        console.log(this.completedMsg);
+    }
+
+    private get startMsg() {
+        return random([
+            "Lo! Accordion sections we shall unfold...",
+            "By my troth! Let us reveal the secrets of the accordions...",
+            "Hark! Each fold doth hide a tale untold...",
+            "Onward, to the realm of hidden knowledge we go...",
+        ]);
+    }
+
+    private get completedMsg() {
+        return random([
+            "All accordion sections revealed, secrets laid bare!",
+            "Zounds! The accordions yield their hidden wisdom!",
+            "Marry! The folds hath been conquered with gentle clicks...",
+            "The accordions hath sung their secrets, forsooth...",
+            "The quest of unfolding accordions is complete, mine friends...",
+        ]);
     }
 }
 
@@ -288,12 +366,31 @@ class ContentTabsActivity extends ActivityBase {
     }
 
     async doActivity() {
-        console.log("Doing content tabs activity...");
+        console.log(this.startMsg);
 
         for (const widget of await this.getTabWidgets()) {
             await this.visitTabSections(widget);
         }
-        console.log("Content tabs activity complete...");
+
+        console.log(this.completedMsg);
+    }
+
+    private get startMsg() {
+        return random([
+            "Now, on to the tabbed realms we voyage...",
+            "Zounds! Each tab a new adventure awaits!",
+            "By my troth, click we through these tabbed mysteries...",
+            "Lo! The tabbed journey begins...",
+        ]);
+    }
+
+    private get completedMsg() {
+        return random([
+            "All tabs visited, mysteries unraveled!",
+            "Huzzah! No tab remains unexplored!",
+            "Gramercy! The tabbed domains hath been conquered...",
+            "The quest of tab-clicking is complete, mine friends...",
+        ]);
     }
 }
 
@@ -334,13 +431,30 @@ class CheckYourAnswerActivity extends ActivityBase {
     }
 
     async doActivity() {
-        console.log("Doing 'Check Your Answer' activity...");
+        console.log(this.startMsg);
 
         for (const container of await this.buttonContainers) {
             await this.checkAnswer(container);
             await sleep(50);
         }
 
-        console.log("'Check Your Answer' activity complete...");
+        console.log(this.completedMsg);
+    }
+
+    private get startMsg() {
+        return random([
+            "Hark! 'Tis time to check thine answers...",
+            "By my troth, we shall see if wisdom prevails!",
+            "Lo! Let the answers be revealed unto thee...",
+            "Marry! Let us unveil the correctness of our answers...",
+        ]);
+    }
+
+    private get completedMsg() {
+        return random([
+            "All answers revealed, truth (or nonsense) laid bare for all!",
+            "Marry! The wisdom of the realm hath spoken through these answers!",
+            "Zounds! Each question hath confessed, leaving naught but enlightenment!",
+        ]);
     }
 }

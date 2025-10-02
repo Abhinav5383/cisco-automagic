@@ -2,6 +2,7 @@ import type { Locator } from "@playwright/test";
 import { sleep } from "bun";
 import type { CiscoBot } from "../main";
 import { type AnswerObj, QuestionType } from "../types";
+import { random } from "../utils";
 import { waitForUserIntervention } from "../utils/prompt";
 import type { BotUtilities } from "./bot-utils";
 import { click, forceClick } from "./misc";
@@ -295,12 +296,20 @@ export class ExamHelper {
         await this.utils.waitForLoadersToDisappear();
 
         if (await this.hasCountdownTimer()) {
-            console.log("I am but a lowly bot, a creature of gears and folly.\nThis final exam I may not conquer, and thus I do beg pardon as I skip it.");
+            console.log(this.skippingFinalExamMessage);
             return;
         }
 
         await this.gatherAnswers();
         await this.answerQuestionsList();
+    }
+
+    private get skippingFinalExamMessage() {
+        return random([
+            "As a humble bot, I must confess my limitations. The final exam is a challenge I cannot surmount, and thus I shall forgo it.",
+            "Alas, the final exam is a riddle beyond my mechanical grasp. I must skip it, for I am but a simple bot.",
+            "The final exam stands as a fortress I cannot breach. With a heavy heart, I must skip it, for I am but a bot.",
+        ]);
     }
 }
 
