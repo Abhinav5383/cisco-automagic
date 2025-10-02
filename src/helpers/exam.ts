@@ -238,7 +238,7 @@ export class ExamHelper {
 
     private async answerQuestionsList() {
         if (!this.totalQuestions) {
-            throw new Error("No questions detected!");
+            throw new Error("Fie! No questions be spied, not even a mouse’s whisper!");
         }
         await this.beginExam();
 
@@ -279,7 +279,7 @@ export class ExamHelper {
             const moreToAnswer =
                 requiredQuestionsToAnswer - (this.totalQuestions - questionsSkipped);
             await waitForUserIntervention(
-                `Skipped ${questionsSkipped} out of ${this.totalQuestions} questions. Please answer at least ${moreToAnswer} more question(s).`,
+                `Ho ho! I’ve duck’d ${questionsSkipped} of ${this.totalQuestions} questions like a knave dodging tavern debts. Bestir thy wits, for ${moreToAnswer} more yet demand thine answer!`,
             );
         }
 
@@ -295,7 +295,7 @@ export class ExamHelper {
         await this.utils.waitForLoadersToDisappear();
 
         if (await this.hasCountdownTimer()) {
-            console.log("Cannot complete final exam! Skipping...");
+            console.log("I am but a lowly bot, a creature of gears and folly.\nThis final exam I may not conquer, and thus I do beg pardon as I skip it.");
             return;
         }
 
