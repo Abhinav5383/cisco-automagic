@@ -52,35 +52,85 @@ export class BotUtilities {
     }
 
     async waitForNextBtnToBeEnabled() {
-        await sleep(500);
-
         let tries = 100;
         while (tries--) {
-            await sleep(300);
             if ((await this.nextBtn.getAttribute("disabled")) === null) return;
             if (!(await this.nextBtn.count())) return;
+            await sleep(300);
         }
 
         return;
     }
 
+    private async waitForPreloaderToDisappear() {
+        const preloader = this.page.locator("div.loader .wheel");
+
+        let preloaderAppeared = (await preloader.count()) > 0;
+        if (!preloaderAppeared) await sleep(500);
+        preloaderAppeared = (await preloader.count()) > 0;
+
+        await preloader.waitFor({
+            state: "detached",
+            timeout: 30_000,
+        });
+        return preloaderAppeared;
+    }
+
+    private async waitForModuleFrameToLoad() {
+        const iframeLoader = this.getModuleFrame()
+            .locator("div.loading__image-before-loader")
+            .last();
+
+        let iframeLoaderAppeared = (await iframeLoader.count()) > 0;
+        if (!iframeLoaderAppeared) await sleep(500);
+        iframeLoaderAppeared = (await iframeLoader.count()) > 0;
+
+        let tries = 100;
+        while (tries-- > 0) {
+            if (!(await iframeLoader.count())) break;
+            if ((await iframeLoader.getAttribute("class"))?.includes("remove-loader")) {
+                break;
+            }
+            await sleep(300);
+        }
+        return iframeLoaderAppeared;
+    }
+
+    private async waitForCourseContentToLoad() {
+        await this.page.waitForLoadState("load");
+        const courseProgressLoadingIndicator = this.getModuleFrame().locator(".loading__content");
+
+        if (!(await courseProgressLoadingIndicator.count())) await sleep(500);
+        await courseProgressLoadingIndicator.waitFor({
+            state: "detached",
+            timeout: 30_000,
+        });
+    }
+
+    async waitForLoadersToDisappear(retry = 3) {
+        const preloaderAppeared = await this.waitForPreloaderToDisappear();
+
+        // Sometimes the preloader disappears but the frame doesn't start loading
+        // one hint for something like that is the next button being disabled
+        await this.waitForNextBtnToBeEnabled();
+        const iframeLoaderAppeared = await this.waitForModuleFrameToLoad();
+
+        if (preloaderAppeared && !iframeLoaderAppeared && retry > 0) {
+            await sleep(3000);
+            await this.waitForLoadersToDisappear(retry--);
+            return;
+        }
+
+        await this.waitForCourseContentToLoad();
+    }
+
     async goToNextSubModule() {
-        await this.waitForModuleProgressToLoad();
+        await this.waitForNextBtnToBeEnabled();
         if ((await this.nextBtn.getAttribute("disabled")) !== null) return false;
 
         await click(this.nextBtn);
-        await this.waitForNextBtnToBeEnabled();
+        await this.waitForLoadersToDisappear();
 
-        await sleep(500);
         return true;
-    }
-
-    async waitForModuleProgressToLoad() {
-        await this.waitForNextBtnToBeEnabled();
-
-        const progressBox = this.getModuleFrame().getByText("Checking for course progress..");
-        if ((await progressBox.count()) || (await progressBox.isVisible())) {
-            await progressBox.waitFor({ state: "hidden", timeout: 30_000 });
-        }
     }
 }

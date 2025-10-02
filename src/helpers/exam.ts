@@ -52,8 +52,8 @@ export class ExamHelper {
         return this.section.locator("button.assessmentResults__retry-btn");
     }
 
-    private get questionsLocator() {
-        return this.section.locator("div.block__container.u-clearfix div.component.is-question");
+    private get questionElements() {
+        return this.section.locator("div.block__container div.component.is-question").all();
     }
 
     static getUniqueQuestionId(question: Locator) {
@@ -68,18 +68,36 @@ export class ExamHelper {
     }
 
     private get skipQuestionButton() {
-        return this.section.locator("label[for='skip-question']");
+        return this.section
+            .locator("label")
+            .filter({ hasText: "Skip Question" })
+            .or(this.section.locator("label[for='skip-question']"))
+            .first();
     }
     private async skipQuestion() {
         await click(this.skipQuestionButton);
     }
 
     private get skipAllButton() {
-        return this.section.locator("label[for='skip-all-question']");
+        return this.section
+            .locator("label")
+            .filter({ hasText: "Skip All" })
+            .or(this.section.locator("label[for='skip-all-question']"))
+            .or(this.section.locator("button.abs_skip-all-button"))
+            .first();
     }
     private async skipAllQuestions() {
         await click(this.skipAllButton);
         await forceClick(this.skipAllButton);
+
+        await this.waitForFinalSubmitScreen();
+    }
+    private async hasCountdownTimer() {
+        return (
+            (await this.section
+                .locator(".secure-toolbar-container .abs__timer .timer-clock b")
+                .count()) > 0
+        );
     }
 
     private async waitForFinalSubmitScreen() {
@@ -98,12 +116,18 @@ export class ExamHelper {
     }
     private async submitAssessment() {
         await this.waitForFinalSubmitScreen();
-        await this.section.locator("input[type='checkbox']#confirm-exam").check();
+        await click(this.section.locator("input[type='checkbox']#confirm-exam"));
         await click(this.assessmentFinalSubmitButton);
     }
 
+    private async isSubmitBtnDisabled() {
+        return (await this.questionSubmitBtn.getAttribute("class"))?.includes("is-disabled");
+    }
+
     private async submitOrSkipQuestion() {
-        if ((await this.questionSubmitBtn.getAttribute("class"))?.includes("is-disabled")) {
+        if (await this.isSubmitBtnDisabled()) await sleep(100);
+
+        if (await this.isSubmitBtnDisabled()) {
             console.log("Skipping question as submit button is not enabled.");
             await this.skipQuestion();
         } else {
@@ -145,22 +169,42 @@ export class ExamHelper {
         }
     }
 
-    static async extractAnswer(question: Locator): Promise<AnswerObj | null> {
+    static async constructQuestionHelper(question: Locator) {
         const questionType = await ExamHelper.determineQuestionType(question);
-        if (!questionType) return null;
 
         switch (questionType) {
-            case QuestionType.MCQ: {
-                return await new MCQ_Helper(question).extractCorrectAnswer();
-            }
+            case QuestionType.MCQ:
+                return new MCQ_Helper(question);
 
-            case QuestionType.OBJECT_MATCH: {
-                return await new ObjectMatch_Helper(question).extractCorrectAnswer();
-            }
+            case QuestionType.OBJECT_MATCH:
+                return new ObjectMatch_Helper(question);
 
             default:
                 return null;
         }
+    }
+
+    static async answerQuestion(question: Locator, correctAnswer: AnswerObj) {
+        switch (correctAnswer.type) {
+            case QuestionType.MCQ:
+                return await new MCQ_Helper(question).answer(correctAnswer.answer);
+
+            case QuestionType.OBJECT_MATCH:
+                return await new ObjectMatch_Helper(question).answer(correctAnswer.answer);
+
+            default:
+                return null;
+        }
+    }
+
+    static async extractAnswer(question: Locator): Promise<AnswerObj | null> {
+        const questionType = await ExamHelper.determineQuestionType(question);
+        if (!questionType) return null;
+
+        const questionHelper = await ExamHelper.constructQuestionHelper(question);
+        if (!questionHelper) return null;
+
+        return await questionHelper.extractCorrectAnswer();
     }
 
     private async gatherAnswers() {
@@ -168,6 +212,7 @@ export class ExamHelper {
         const iterations = this.isModuleTypeExam(moduleTitle) ? 1 : 3;
 
         for (let i = 0; i < iterations; i++) {
+            console.log("Collecting answers: ", i + 1);
             await this.beginExam();
 
             await this.skipAllQuestions();
@@ -176,7 +221,7 @@ export class ExamHelper {
             await sleep(500);
             await click(this.section.locator("button.review-assessment-button"));
 
-            const questions = await this.questionsLocator.all();
+            const questions = await this.questionElements;
 
             for (const question of questions) {
                 const answer = await ExamHelper.extractAnswer(question);
@@ -187,19 +232,21 @@ export class ExamHelper {
             await click(this.examResetButton);
             await sleep(300);
         }
+
+        console.log(`Collected answers for ${ANSWERS.size} questions.`);
     }
 
-    private async answerQuestions() {
+    private async answerQuestionsList() {
         if (!this.totalQuestions) {
             throw new Error("No questions detected!");
         }
+        await this.beginExam();
 
         let questionsSkipped = 0;
-
         for (let i = 0; i < this.totalQuestions; i++) {
             await sleep(50);
 
-            const question = (await this.questionsLocator.all()).pop();
+            const question = (await this.questionElements).pop();
             if (!question) break;
 
             const questionId = await ExamHelper.getUniqueQuestionId(question);
@@ -218,17 +265,11 @@ export class ExamHelper {
                 correctAns.answer,
             );
 
-            if (correctAns.type === QuestionType.MCQ) {
-                await new MCQ_Helper(question).answer(correctAns.answer);
-            } else if (correctAns.type === QuestionType.OBJECT_MATCH) {
-                await new ObjectMatch_Helper(question).answer(correctAns.answer);
-            }
-
-            await sleep(100);
+            await ExamHelper.answerQuestion(question, correctAns);
             await this.submitOrSkipQuestion();
         }
 
-        if (await this.section.locator("button.submit-button div.submit").count()) {
+        if (await this.questionSubmitBtn.count()) {
             await sleep(100);
             await this.skipAllQuestions();
         }
@@ -242,7 +283,6 @@ export class ExamHelper {
             );
         }
 
-        await this.waitForFinalSubmitScreen();
         await this.submitAssessment();
         await sleep(1000);
     }
@@ -251,9 +291,16 @@ export class ExamHelper {
         if (await ExamHelper.isExamComplete(this.section)) return;
         if (await this.examResetButton.isVisible()) await click(this.examResetButton);
 
-        await this.gatherAnswers();
         await this.beginExam();
-        await this.answerQuestions();
+        await this.utils.waitForLoadersToDisappear();
+
+        if (await this.hasCountdownTimer()) {
+            console.log("Cannot complete final exam! Skipping...");
+            return;
+        }
+
+        await this.gatherAnswers();
+        await this.answerQuestionsList();
     }
 }
 
@@ -265,10 +312,10 @@ export class MCQ_Helper {
     }
 
     get answerOptions() {
-        return this.question.locator("div.mcq__widget .mcq__item");
+        return this.question.locator("div.mcq__widget .mcq__item").all();
     }
     get correctAnswerOptions() {
-        return this.question.locator("div.mcq__widget .mcq__item.is-correct");
+        return this.question.locator("div.mcq__widget .mcq__item.is-correct").all();
     }
 
     async getOptionIdentifier(option: Locator) {
@@ -281,7 +328,7 @@ export class MCQ_Helper {
     }
 
     async answer(answers: string[]) {
-        const options = await this.answerOptions.all();
+        const options = await this.answerOptions;
 
         for (const opt of options) {
             const optionId = await this.getOptionIdentifier(opt);
@@ -294,7 +341,7 @@ export class MCQ_Helper {
     }
 
     async pseudoAnswer() {
-        const options = await this.answerOptions.all();
+        const options = await this.answerOptions;
         if (options.length === 0) return;
 
         for (const opt of options) {
@@ -311,7 +358,7 @@ export class MCQ_Helper {
             type: QuestionType.MCQ,
             answer: [] as string[],
         };
-        const correctAnswers = await this.correctAnswerOptions.all();
+        const correctAnswers = await this.correctAnswerOptions;
 
         for (const answer of correctAnswers) {
             const ansId = await this.getOptionIdentifier(answer);
@@ -330,10 +377,10 @@ export class ObjectMatch_Helper {
     }
 
     get lhsOptions() {
-        return this.question.locator("div.categories-container .item button");
+        return this.question.locator("div.categories-container .item button").all();
     }
     get rhsOptions() {
-        return this.question.locator("div.options-container .item button");
+        return this.question.locator("div.options-container .item button").all();
     }
 
     async getOptionIdentifier(option: Locator) {
@@ -351,8 +398,8 @@ export class ObjectMatch_Helper {
     }
 
     async answer(answer: Map<string, string>) {
-        const lhsItems = await this.lhsOptions.all();
-        const rhsItems = await this.rhsOptions.all();
+        const lhsItems = await this.lhsOptions;
+        const rhsItems = await this.rhsOptions;
 
         for (const lhs of lhsItems) {
             const lhsText = await this.getOptionIdentifier(lhs);
@@ -370,8 +417,8 @@ export class ObjectMatch_Helper {
     }
 
     async pseudoAnswer() {
-        const lhsItems = await this.lhsOptions.all();
-        const rhsItems = await this.rhsOptions.all();
+        const lhsItems = await this.lhsOptions;
+        const rhsItems = await this.rhsOptions;
 
         for (let i = 0; i < lhsItems.length; i++) {
             const lhs = lhsItems[i];

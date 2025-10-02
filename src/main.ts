@@ -1,5 +1,6 @@
 import { type Browser, chromium, type Locator, type Page } from "@playwright/test";
 import { sleep } from "bun";
+import { ActivityHelper } from "./helpers/activity";
 import { BotUtilities } from "./helpers/bot-utils";
 import { ExamHelper } from "./helpers/exam";
 import { doLogin } from "./helpers/login";
@@ -129,15 +130,15 @@ export class CiscoBot {
         }
 
         await heading.scrollIntoViewIfNeeded();
-        // await completeActivities(section, page);
+        await new ActivityHelper(this, section).doActivities();
 
         const sectionDimenstions = await section.boundingBox();
         // Each PageDown scrolls approx 400px
-        let downBtnClicks = sectionDimenstions ? Math.ceil(sectionDimenstions.height / 410) : 0;
+        let downBtnClicks = sectionDimenstions ? Math.ceil(sectionDimenstions.height / 390) : 0;
 
-        while (downBtnClicks-- > 0) {
+        while (downBtnClicks-- >= 0) {
             await this.page.keyboard.press("PageDown");
-            await sleep(180);
+            await sleep(160);
         }
 
         await this.page.keyboard.press("PageDown");
