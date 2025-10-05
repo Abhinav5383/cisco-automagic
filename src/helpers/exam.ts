@@ -1,18 +1,23 @@
 import type { Locator } from "@playwright/test";
 import { sleep } from "bun";
 import type { CiscoBot } from "../main";
-import { type AnswerObj, QuestionType } from "../types";
+import {
+    type AnswerObj,
+    type BruteForceResetFn,
+    type BruteForceTestFn,
+    QuestionType,
+} from "../types";
 import { combinations, random } from "../utils";
 import { waitForUserIntervention } from "../utils/prompt";
 import type { BotUtilities } from "./bot-utils";
-import { click, forceClick } from "./misc";
+import { click, forceClick, jsClick } from "./misc";
 
 const ANSWERS = new Map<string, AnswerObj>();
 
 export class ExamHelper {
-    private utils: BotUtilities;
-    private section: Locator;
-    private totalQuestions = 0;
+    utils: BotUtilities;
+    section: Locator;
+    totalQuestions = 0;
 
     constructor(parent: CiscoBot, section: Locator) {
         this.utils = parent.utils;
@@ -151,6 +156,8 @@ export class ExamHelper {
             return QuestionType.MCQ;
         } else if (classList?.includes("objectmatching")) {
             return QuestionType.OBJECT_MATCH;
+        } else if (classList?.includes("matching") || classList?.includes("matchinggraphic")) {
+            return QuestionType.DROPDOWN_MATCH;
         }
 
         return null;
@@ -174,6 +181,9 @@ export class ExamHelper {
 
             case QuestionType.OBJECT_MATCH:
                 return new ObjectMatch_Helper(question);
+
+            case QuestionType.DROPDOWN_MATCH:
+                return new MatchingActivity_Helper(question);
 
             default:
                 return null;
@@ -302,13 +312,15 @@ export class ExamHelper {
     }
 }
 
-export class MCQ_Helper {
+class QuestionHelperBase {
     question: Locator;
 
     constructor(question: Locator) {
         this.question = question;
     }
+}
 
+export class MCQ_Helper extends QuestionHelperBase {
     private get optionLocator() {
         return this.question.locator("div.mcq__widget .mcq__item");
     }
@@ -401,7 +413,7 @@ export class MCQ_Helper {
         return [];
     }
 
-    private async guessMultiChoiceAnswer(maxSelectable: number, testFn: () => Promise<boolean>) {
+    private async guessMultiChoiceAnswer(maxSelectable: number, testFn: BruteForceTestFn) {
         const options = await this.options;
         if (maxSelectable === 0) {
             console.error("Could not determine max selectable options for MCQ.");
@@ -426,7 +438,7 @@ export class MCQ_Helper {
         return [];
     }
 
-    async guessAnswer(testFn: () => Promise<boolean>) {
+    async guessAnswer(testFn: BruteForceTestFn, _resetFn: BruteForceResetFn) {
         const questionId = await ExamHelper.getUniqueQuestionId(this.question);
         if (!questionId) return null;
 
@@ -447,13 +459,7 @@ export class MCQ_Helper {
     }
 }
 
-export class ObjectMatch_Helper {
-    question: Locator;
-
-    constructor(question: Locator) {
-        this.question = question;
-    }
-
+export class ObjectMatch_Helper extends QuestionHelperBase {
     private get lhsOptions() {
         return this.question.locator("div.categories-container .item button").all();
     }
@@ -502,16 +508,44 @@ export class ObjectMatch_Helper {
         const lhsItems = await this.lhsOptions;
         const rhsItems = await this.rhsOptions;
 
-        for (let i = 0; i < lhsItems.length; i++) {
-            const lhs = lhsItems[i];
-            const rhs = rhsItems[i];
-            if (!lhs || !rhs) continue;
+        let cheatAttribute: string | null = null;
+        if (await lhsItems[0]?.getAttribute("data-id")) {
+            cheatAttribute = "data-id";
+        } else if (await lhsItems[0]?.getAttribute("data-itemindex")) {
+            cheatAttribute = "data-itemindex";
+        }
 
-            await this.selectAnswer(lhs, rhs);
+        // if there's no attribute that in some way references the answer, we can't cheat
+        if (!cheatAttribute) {
+            for (let i = 0; i < lhsItems.length; i++) {
+                const lhs = lhsItems[i];
+                const rhs = rhsItems[i];
+                if (!lhs || !rhs) continue;
+
+                await this.selectAnswer(lhs, rhs);
+            }
+        } else {
+            const rhsMap = new Map<string, Locator>();
+            for (const rhs of rhsItems) {
+                const id = await rhs.getAttribute(cheatAttribute);
+                if (!id) continue;
+
+                rhsMap.set(id, rhs);
+            }
+
+            for (const lhs of lhsItems) {
+                const id = await lhs.getAttribute(cheatAttribute);
+                if (!id) continue;
+
+                const rhs = rhsMap.get(id);
+                if (!rhs) continue;
+
+                await this.selectAnswer(lhs, rhs);
+            }
         }
     }
 
-    async extractCorrectAnswer(): Promise<AnswerObj | null> {
+    async extractCorrectAnswer(feedbackParent = this.question): Promise<AnswerObj | null> {
         const questionId = await ExamHelper.getUniqueQuestionId(this.question);
         if (!questionId) return null;
 
@@ -520,8 +554,8 @@ export class ObjectMatch_Helper {
             type: QuestionType.OBJECT_MATCH,
             answer: new Map<string, string>(),
         };
-        const feedbackTable = await this.question.locator(".table-feedback tr").all();
-        for (const row of feedbackTable) {
+        const feedbacks = await feedbackParent.locator(".table-feedback tr").all();
+        for (const row of feedbacks) {
             const [lhs, rhs] = await row.locator("td").all();
             if (!lhs || !rhs) continue;
 
@@ -536,8 +570,108 @@ export class ObjectMatch_Helper {
         return AnswerObj;
     }
 
-    async guessAnswer(_testFn: () => Promise<boolean>) {
-        // Too expensive to brute force
+    async guessAnswer(testFn: BruteForceTestFn, _resetFn: BruteForceResetFn) {
+        await this.justAnswerIt();
+        return await testFn();
+    }
+}
+
+export class MatchingActivity_Helper extends QuestionHelperBase {
+    private get matchingQuestions() {
+        return this.question.locator("matching-dropdown-view, .matching__item").all();
+    }
+
+    private getDropdownButton(dropdown: Locator) {
+        return dropdown.locator("button.dropdown__btn");
+    }
+    private dropdownOptions(dropdown: Locator) {
+        return dropdown.locator("ul.dropdown__list li.dropdown__item");
+    }
+
+    private async getOptionId(option: Locator) {
+        const text = await option.textContent();
+        if (text) return text.trim();
+
         return null;
+    }
+
+    private async selectOption(matchQuestion: Locator, answer: string) {
+        if (!answer) return;
+
+        const options = await this.dropdownOptions(matchQuestion).all();
+        for (const opt of options) {
+            const optId = await this.getOptionId(opt);
+
+            if (optId === answer) {
+                await jsClick(opt);
+                break;
+            }
+        }
+    }
+
+    async answer(answerObj: AnswerObj) {
+        if (answerObj.type !== QuestionType.DROPDOWN_MATCH) {
+            throw new Error(`Invalid answer type for DropDownMatch_Helper: ${answerObj.type}`);
+        }
+
+        const questions = await this.matchingQuestions;
+
+        for (const [index, dropdown] of questions.entries()) {
+            const correctOptionId = answerObj.answer.get(index.toString());
+            if (!correctOptionId) continue;
+
+            await this.selectOption(dropdown, correctOptionId);
+        }
+    }
+
+    async extractCorrectAnswer(): Promise<AnswerObj | null> {
+        const questionId = await ExamHelper.getUniqueQuestionId(this.question);
+        if (!questionId) return null;
+
+        const AnswerObj: AnswerObj = {
+            qestionId: questionId,
+            type: QuestionType.DROPDOWN_MATCH,
+            answer: new Map<string, string>(),
+        };
+
+        const questions = await this.matchingQuestions;
+        for (const [index, dropdown] of questions.entries()) {
+            const correctAns = await this.getDropdownButton(dropdown)
+                .locator("div.dropdown__inner")
+                .textContent();
+            if (!correctAns) continue;
+
+            AnswerObj.answer.set(index.toString(), correctAns.trim());
+        }
+        if (AnswerObj.answer.size === 0) return null;
+
+        return AnswerObj;
+    }
+
+    private async justAnswerIt() {
+        for (const dropdown of await this.matchingQuestions) {
+            await jsClick(this.getDropdownButton(dropdown));
+
+            const firstOption = this.dropdownOptions(dropdown).first();
+            await jsClick(firstOption);
+        }
+    }
+
+    async guessAnswer(testFn: BruteForceTestFn, resetFn: BruteForceResetFn) {
+        await this.justAnswerIt();
+        if (await testFn()) return;
+
+        const showCorrectBtn = this.question.locator("button.show-answer-on-submit");
+        if (!(await showCorrectBtn.count())) return;
+        await forceClick(showCorrectBtn);
+        await sleep(100);
+
+        const correctAnswer = await this.extractCorrectAnswer();
+        if (!correctAnswer) return;
+
+        await resetFn();
+        await this.answer(correctAnswer);
+
+        await testFn();
     }
 }

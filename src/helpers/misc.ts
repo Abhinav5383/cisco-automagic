@@ -1,6 +1,6 @@
 import type { Locator } from "@playwright/test";
 
-export async function click(elem: Locator, timeout = 5000) {
+export async function click(elem: Locator, timeout = 3000) {
     try {
         await elem.click({ timeout });
         return;
@@ -16,7 +16,7 @@ export async function click(elem: Locator, timeout = 5000) {
     }
 }
 
-export async function forceClick(elem: Locator, timeout = 5000) {
+export async function forceClick(elem: Locator, timeout = 3000) {
     try {
         await elem.click({ force: true, timeout });
         return;
@@ -25,7 +25,7 @@ export async function forceClick(elem: Locator, timeout = 5000) {
     }
 }
 
-export async function jsClick(elem: Locator, timeout = 5000) {
+export async function jsClick(elem: Locator, timeout = 3000) {
     try {
         await elem.evaluate(
             (elem: HTMLElement) => {
@@ -36,6 +36,14 @@ export async function jsClick(elem: Locator, timeout = 5000) {
                 timeout: timeout,
             },
         );
+    } catch (err) {
+        console.trace(err);
+    }
+}
+
+export async function scrollIntoView(elem: Locator, timeout = 3000) {
+    try {
+        await elem.scrollIntoViewIfNeeded({ timeout });
     } catch (err) {
         console.trace(err);
     }

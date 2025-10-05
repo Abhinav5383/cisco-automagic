@@ -1,7 +1,7 @@
 export enum QuestionType {
     MCQ = "mcq",
-    OBJECT_MATCH = "match",
-    DROPDOWN_SELECT = "dropdown_select",
+    OBJECT_MATCH = "object_match",
+    DROPDOWN_MATCH = "dropdown_match",
 }
 
 export type AnswerObj =
@@ -12,7 +12,10 @@ export type AnswerObj =
       }
     | {
           qestionId: string;
-          type: QuestionType.OBJECT_MATCH | QuestionType.DROPDOWN_SELECT;
+          type: QuestionType.OBJECT_MATCH | QuestionType.DROPDOWN_MATCH;
           // question_text : answer_text
           answer: Map<string, string>;
       };
+
+export type BruteForceTestFn = () => Promise<boolean>;
+export type BruteForceResetFn = () => Promise<void>;

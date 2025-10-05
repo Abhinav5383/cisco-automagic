@@ -5,7 +5,7 @@ import type { AnswerObj } from "../types";
 import { random } from "../utils";
 import type { BotUtilities } from "./bot-utils";
 import { ExamHelper } from "./exam";
-import { click, forceClick } from "./misc";
+import { click, forceClick, scrollIntoView } from "./misc";
 
 const ASSESSMENT_ANSWERS = new Map<string, AnswerObj>();
 
@@ -24,7 +24,7 @@ export class ActivityHelper {
         return this.utils.getModuleFrame().locator(".notify__popup button.notify__close-btn");
     }
     async closeNotifyPopup() {
-        await forceClick(this.notifyPopupCloseBtn);
+        await forceClick(this.notifyPopupCloseBtn, 1000);
     }
 
     async doActivities() {
@@ -36,6 +36,7 @@ export class ActivityHelper {
             AccordionActivity,
             ContentTabsActivity,
             CheckYourAnswerActivity,
+            NarrativeActivity,
         ];
 
         for (const ActivityType of ActivityTypes) {
@@ -199,8 +200,14 @@ class VideoPlayerActivity extends ActivityBase {
         });
         await sleep(1000);
 
-        if (await frame.locator(".vjs-paused video").count()) {
-            await click(playBtn);
+        let tries = 30;
+        while (tries-- > 0) {
+            if (await frame.locator(".vjs-paused video").count()) {
+                await click(playBtn);
+                sleep(500);
+            } else {
+                break;
+            }
         }
 
         await frame
@@ -472,11 +479,11 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
     private get questions() {
         return this.section.locator(".component.is-question").all();
     }
-    private getSubmitButton(question: Locator) {
-        return question.locator(".btn__container button").getByText("submit");
+    static getSubmitButton(question: Locator) {
+        return question.locator("button").getByText("submit");
     }
-    private getResetButton(question: Locator) {
-        return question.locator(".btn__container button").getByText("reset");
+    static getResetButton(question: Locator) {
+        return question.locator("button").getByText("reset");
     }
 
     static async isCorrect(question: Locator) {
@@ -485,22 +492,28 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
 
     private async answerQuestion(question: Locator) {
         // just in case
-        if (await this.getResetButton(question).count()) {
-            await forceClick(this.getResetButton(question));
+        const resetBtn = SingleQuestionSectionQuiz_Activity.getResetButton(question);
+        if (await resetBtn.count()) {
+            await forceClick(resetBtn, 1000);
         }
 
         const testFn = async () => {
-            await forceClick(this.getSubmitButton(question));
+            await forceClick(SingleQuestionSectionQuiz_Activity.getSubmitButton(question));
             await this.activityHelper.closeNotifyPopup();
-            await forceClick(this.getResetButton(question));
 
-            return await SingleQuestionSectionQuiz_Activity.isCorrect(question);
+            const isCorrectGuess = await SingleQuestionSectionQuiz_Activity.isCorrect(question);
+            if (isCorrectGuess) return true;
+            return false;
+        };
+
+        const resetFn = async () => {
+            await forceClick(SingleQuestionSectionQuiz_Activity.getResetButton(question));
         };
 
         const questionHelper = await ExamHelper.constructQuestionHelper(question);
         if (!questionHelper) return;
 
-        await questionHelper.guessAnswer(testFn);
+        await questionHelper.guessAnswer(testFn, resetFn);
     }
 
     async doActivity() {
@@ -515,5 +528,42 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
         }
 
         console.log("Completed Single Question Section Quiz.");
+    }
+}
+
+class NarrativeActivity extends ActivityBase {
+    static async isInside(section: Locator) {
+        return (await section.locator("div.component.narrative").count()) > 0;
+    }
+
+    private get narratives() {
+        return this.section.locator("div.component.narrative").all();
+    }
+    private nextButton(narrative: Locator) {
+        return narrative.locator("button[aria-label='Next']");
+    }
+
+    async completeNarrative(narrative: Locator) {
+        const nextBtn = this.nextButton(narrative);
+        await scrollIntoView(narrative);
+
+        while (true) {
+            const nextBtnClasslist = await nextBtn.getAttribute("class");
+            if (!nextBtnClasslist || nextBtnClasslist.includes("disabled")) return;
+            await click(nextBtn);
+            await sleep(50);
+        }
+    }
+
+    async doActivity() {
+        console.log("Doing Narrative Activity...");
+
+        const narratives = await this.narratives;
+
+        for (const narrative of narratives) {
+            await this.completeNarrative(narrative);
+        }
+
+        console.log("Completed Narrative Activity.");
     }
 }
