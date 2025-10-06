@@ -113,7 +113,7 @@ export class BotUtilities {
         if (!(await courseProgressLoadingIndicator.count())) await sleep(500);
         await courseProgressLoadingIndicator.waitFor({
             state: "detached",
-            timeout: 30_000,
+            timeout: 60_000,
         });
     }
 

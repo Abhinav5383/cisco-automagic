@@ -5,7 +5,7 @@ import type { AnswerObj } from "../types";
 import { random } from "../utils";
 import type { BotUtilities } from "./bot-utils";
 import { ExamHelper } from "./exam";
-import { click, forceClick, scrollIntoView } from "./misc";
+import { click, forceClick, jsClick, scrollIntoView } from "./misc";
 
 const ASSESSMENT_ANSWERS = new Map<string, AnswerObj>();
 
@@ -24,7 +24,8 @@ export class ActivityHelper {
         return this.utils.getModuleFrame().locator(".notify__popup button.notify__close-btn");
     }
     async closeNotifyPopup() {
-        await forceClick(this.notifyPopupCloseBtn, 1000);
+        if (!(await this.notifyPopupCloseBtn.count())) return;
+        await jsClick(this.notifyPopupCloseBtn, 1000);
     }
 
     async doActivities() {
@@ -84,12 +85,12 @@ class MultiQuestionAssessment_Activity extends ActivityBase {
             return;
         }
 
-        await this.activitySubmitButton.click();
+        await click(this.activitySubmitButton);
         await sleep(100);
 
         if (await this.activitySubmitButton.count()) {
-            await this.confirmActivitySubmitCheckbox.click();
-            await this.activitySubmitButton.click();
+            await click(this.confirmActivitySubmitCheckbox);
+            await click(this.activitySubmitButton);
         }
 
         await sleep(100);
@@ -108,15 +109,26 @@ class MultiQuestionAssessment_Activity extends ActivityBase {
         return (await this.assessmentResetButton.count()) > 0;
     }
 
+    private async reviewAssessment() {
+        await sleep(100);
+        const reviewBtn = this.assessmentContainer.locator("button.review-assessment");
+        if (!(await reviewBtn.count())) return;
+
+        await click(reviewBtn);
+    }
+
     private get assessmentQuestions() {
         return this.section.locator("div.block__container div.component.is-question").all();
     }
 
     private async gatherAnswers() {
+        console.log("Gathering answers for assessment...");
         await this.submitAssessment();
+        await this.reviewAssessment();
 
         for (const question of await this.assessmentQuestions) {
             const answer = await ExamHelper.extractAnswer(question);
+            console.log(answer);
             if (answer) ASSESSMENT_ANSWERS.set(answer.qestionId, answer);
         }
 
@@ -127,10 +139,12 @@ class MultiQuestionAssessment_Activity extends ActivityBase {
     private async doQuestions() {
         for (const question of await this.assessmentQuestions) {
             const questionId = await ExamHelper.getUniqueQuestionId(question);
-            if (!questionId) return;
+            if (!questionId) continue;
 
             const answer = ASSESSMENT_ANSWERS.get(questionId);
-            if (!answer) return;
+            if (!answer) continue;
+
+            console.log("[MultiQA]", questionId, answer);
 
             await ExamHelper.answerQuestion(question, answer);
             await sleep(100);
@@ -181,40 +195,63 @@ class VideoPlayerActivity extends ActivityBase {
         return this.section.locator("div.brightcove__inner iframe");
     }
 
-    private async watchVideo(frame: FrameLocator) {
-        const playBtn = frame.locator("button.vjs-big-play-button");
-        await playBtn.click();
+    private async isVideoPlaying(videoFrame: FrameLocator) {
+        return (await videoFrame.locator("div.vjs-playing").count()) > 0;
+    }
 
-        await sleep(1000);
+    private async waitForVideoToPlay(videoFrame: FrameLocator) {
+        let tries = 50;
+        while (tries-- > 0) {
+            if (await this.isVideoPlaying(videoFrame)) {
+                return true;
+            }
+            await sleep(300);
+        }
+    }
 
-        const progressBar = frame.locator("div.vjs-progress-holder.vjs-slider");
+    private async skipToEnd(videoFrame: FrameLocator) {
+        const progressBar = videoFrame.locator("div.vjs-progress-holder.vjs-slider");
         const progressBarDimenstions = await progressBar.boundingBox();
         if (!progressBarDimenstions) return;
 
-        // Click at 99% of the progress bar to complete the video
         await progressBar.click({
             position: {
                 x: progressBarDimenstions.width - 2,
                 y: progressBarDimenstions.height / 2,
             },
+            force: true,
         });
-        await sleep(1000);
+        await this.waitForVideoToPlay(videoFrame);
+    }
 
-        let tries = 30;
+    private async playVideo(videoFrame: FrameLocator) {
+        const playBtn = videoFrame.locator("button.vjs-big-play-button");
+        if (await playBtn.count()) {
+            await jsClick(playBtn);
+        }
+        await this.waitForVideoToPlay(videoFrame);
+    }
+
+    private async watchVideo(frame: FrameLocator) {
+        await this.playVideo(frame);
+        await this.skipToEnd(frame);
+
+        let tries = 15;
+
         while (tries-- > 0) {
-            if (await frame.locator(".vjs-paused video").count()) {
-                await click(playBtn);
-                sleep(500);
-            } else {
-                break;
+            if (await frame.locator("div.vjs-playing").count()) {
+                // video is playing, wait a bit
+                await sleep(4000);
+            }
+
+            if (await frame.locator("div.vjs-ended").count()) break;
+            await sleep(1000);
+            if (await frame.locator("div.vjs-ended").count()) break;
+
+            if (await frame.locator("div.vjs-paused").count()) {
+                await this.playVideo(frame);
             }
         }
-
-        await frame
-            .locator(".vjs-ended video")
-            .first()
-            .waitFor({ timeout: 60_000 })
-            .catch(() => {});
     }
 
     async doActivity() {
@@ -326,7 +363,7 @@ class AccordionActivity extends ActivityBase {
         console.log(this.startMsg);
 
         for (const acc of await this.accordions) {
-            await acc.click();
+            await jsClick(acc);
             await sleep(100);
         }
         console.log(this.completedMsg);
@@ -498,6 +535,7 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
         }
 
         const testFn = async () => {
+            await sleep(150);
             await forceClick(SingleQuestionSectionQuiz_Activity.getSubmitButton(question));
             await this.activityHelper.closeNotifyPopup();
 
@@ -507,6 +545,7 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
         };
 
         const resetFn = async () => {
+            await sleep(150);
             await forceClick(SingleQuestionSectionQuiz_Activity.getResetButton(question));
         };
 

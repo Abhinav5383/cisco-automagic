@@ -107,7 +107,7 @@ export class ExamHelper {
                 .locator("div.component .final-screen-inner .assessment-status")
                 .waitFor({
                     state: "attached",
-                    timeout: 60000,
+                    timeout: 75_000,
                 });
         } catch {}
     }
@@ -152,11 +152,19 @@ export class ExamHelper {
 
     static async determineQuestionType(question: Locator): Promise<QuestionType | null> {
         const classList = await question.getAttribute("class");
-        if (classList?.includes("mcq")) {
+
+        if (classList?.includes("mcq") || (await question.locator(".mcq").count())) {
             return QuestionType.MCQ;
-        } else if (classList?.includes("objectmatching")) {
+        } else if (
+            classList?.includes("objectmatching") ||
+            (await question.locator(".objectmatching").count())
+        ) {
             return QuestionType.OBJECT_MATCH;
-        } else if (classList?.includes("matching") || classList?.includes("matchinggraphic")) {
+        } else if (
+            classList?.includes("matching") ||
+            classList?.includes("matchinggraphic") ||
+            (await question.locator(".matching, .matchinggraphic").count())
+        ) {
             return QuestionType.DROPDOWN_MATCH;
         }
 
@@ -208,11 +216,14 @@ export class ExamHelper {
     }
 
     private async gatherAnswers() {
-        const moduleTitle = await this.utils.getSectionHeaderText(this.section);
-        const iterations = this.isModuleTypeExam(moduleTitle) ? 1 : 3;
+        const maxIters = 5;
+        let newAnswersFound = 0;
+        let iters = 0;
 
-        for (let i = 0; i < iterations; i++) {
-            console.log("Collecting answers: ", i + 1);
+        do {
+            newAnswersFound = 0;
+
+            console.log("[Collecting answers] Iteration : ", iters + 1);
             await this.beginExam();
 
             await this.skipAllQuestions();
@@ -225,15 +236,22 @@ export class ExamHelper {
 
             for (const question of questions) {
                 const answer = await ExamHelper.extractAnswer(question);
-                if (answer) ANSWERS.set(answer.qestionId, answer);
+                if (answer) {
+                    if (!ANSWERS.has(answer.qestionId)) newAnswersFound++;
+                    ANSWERS.set(answer.qestionId, answer);
+                }
             }
-            if (this.totalQuestions === 0) this.totalQuestions = questions.length;
 
+            console.log(
+                `Found answers for ${newAnswersFound} new questions. Total answers: ${ANSWERS.size}`,
+            );
+
+            if (this.totalQuestions === 0) this.totalQuestions = questions.length;
             await click(this.examResetButton);
             await sleep(300);
-        }
+        } while (++iters < maxIters && newAnswersFound > 2);
 
-        console.log(`Collected answers for ${ANSWERS.size} questions.`);
+        console.log(`Gathered answers for ${ANSWERS.size} questions.`);
     }
 
     private async answerQuestionsList() {
@@ -246,6 +264,7 @@ export class ExamHelper {
         for (let i = 0; i < this.totalQuestions; i++) {
             await sleep(50);
 
+            // need to get the question elements array again because the new question is pushed after submission
             const question = (await this.questionElements).pop();
             if (!question) break;
 
@@ -337,7 +356,7 @@ export class MCQ_Helper extends QuestionHelperBase {
 
     private async selectAnswer(option: Locator) {
         const label = option.locator("label");
-        await label.click();
+        await click(label);
     }
 
     async answer(answerObj: AnswerObj) {
@@ -397,7 +416,7 @@ export class MCQ_Helper extends QuestionHelperBase {
         return selectedOptions;
     }
 
-    private async guessSingleChoiceAnswer(testFn: () => Promise<boolean>) {
+    private async guessSingleChoiceAnswer(testFn: BruteForceTestFn, resetFn: BruteForceResetFn) {
         const options = await this.options;
 
         for (const opt of options) {
@@ -407,13 +426,19 @@ export class MCQ_Helper extends QuestionHelperBase {
                 const id = await this.getOptionIdentifier(opt);
                 if (id) return [id];
                 break;
+            } else {
+                await resetFn();
             }
         }
 
         return [];
     }
 
-    private async guessMultiChoiceAnswer(maxSelectable: number, testFn: BruteForceTestFn) {
+    private async guessMultiChoiceAnswer(
+        maxSelectable: number,
+        testFn: BruteForceTestFn,
+        resetFn: BruteForceResetFn,
+    ) {
         const options = await this.options;
         if (maxSelectable === 0) {
             console.error("Could not determine max selectable options for MCQ.");
@@ -432,23 +457,29 @@ export class MCQ_Helper extends QuestionHelperBase {
                     if (id) answerIds.push(id);
                 }
                 return answerIds;
+            } else {
+                await resetFn();
             }
         }
 
         return [];
     }
 
-    async guessAnswer(testFn: BruteForceTestFn, _resetFn: BruteForceResetFn) {
+    async guessAnswer(testFn: BruteForceTestFn, resetFn: BruteForceResetFn) {
         const questionId = await ExamHelper.getUniqueQuestionId(this.question);
         if (!questionId) return null;
 
         let answers: string[];
 
         const maxSelectable = await this.maxSelectableOptions();
+        // need to reset after checking max selectable
+        // because it selects max options in order to determine that number
+        await resetFn();
+
         if (maxSelectable === 1) {
-            answers = await this.guessSingleChoiceAnswer(testFn);
+            answers = await this.guessSingleChoiceAnswer(testFn, resetFn);
         } else {
-            answers = await this.guessMultiChoiceAnswer(maxSelectable, testFn);
+            answers = await this.guessMultiChoiceAnswer(maxSelectable, testFn, resetFn);
         }
 
         return {
@@ -471,7 +502,7 @@ export class ObjectMatch_Helper extends QuestionHelperBase {
         const text = await option.locator(".category-item-text").textContent();
         if (!text) return null;
 
-        return text.trim();
+        return text.trim().toLowerCase();
     }
 
     private async selectAnswer(lhs: Locator, rhs: Locator) {
@@ -545,7 +576,7 @@ export class ObjectMatch_Helper extends QuestionHelperBase {
         }
     }
 
-    async extractCorrectAnswer(feedbackParent = this.question): Promise<AnswerObj | null> {
+    async extractCorrectAnswer(): Promise<AnswerObj | null> {
         const questionId = await ExamHelper.getUniqueQuestionId(this.question);
         if (!questionId) return null;
 
@@ -554,16 +585,16 @@ export class ObjectMatch_Helper extends QuestionHelperBase {
             type: QuestionType.OBJECT_MATCH,
             answer: new Map<string, string>(),
         };
-        const feedbacks = await feedbackParent.locator(".table-feedback tr").all();
+        const feedbacks = await this.question.locator(".table-feedback tr").all();
         for (const row of feedbacks) {
             const [lhs, rhs] = await row.locator("td").all();
             if (!lhs || !rhs) continue;
 
-            const lhsText = (await lhs.textContent())?.trim();
-            const rhsText = (await rhs.textContent())?.trim();
+            const lhsText = await lhs.textContent();
+            const rhsText = await rhs.textContent();
             if (!lhsText || !rhsText) continue;
 
-            AnswerObj.answer.set(lhsText.trim(), rhsText.trim());
+            AnswerObj.answer.set(lhsText.trim().toLowerCase(), rhsText.trim().toLowerCase());
         }
 
         if (AnswerObj.answer.size === 0) return null;
@@ -573,6 +604,8 @@ export class ObjectMatch_Helper extends QuestionHelperBase {
     async guessAnswer(testFn: BruteForceTestFn, _resetFn: BruteForceResetFn) {
         await this.justAnswerIt();
         return await testFn();
+        // no need to reset, cause we can't brute force it anyway
+        // if the justAnswerIt() fails, we can't do anything about it
     }
 }
 
@@ -587,10 +620,13 @@ export class MatchingActivity_Helper extends QuestionHelperBase {
     private dropdownOptions(dropdown: Locator) {
         return dropdown.locator("ul.dropdown__list li.dropdown__item");
     }
+    private get feedbackTable() {
+        return this.question.locator(".table-feedback");
+    }
 
     private async getOptionId(option: Locator) {
         const text = await option.textContent();
-        if (text) return text.trim();
+        if (text) return text.trim().toLowerCase();
 
         return null;
     }
@@ -624,27 +660,63 @@ export class MatchingActivity_Helper extends QuestionHelperBase {
         }
     }
 
-    async extractCorrectAnswer(): Promise<AnswerObj | null> {
-        const questionId = await ExamHelper.getUniqueQuestionId(this.question);
-        if (!questionId) return null;
+    private async extractAnswerFromSelectedOptions(): Promise<Map<string, string>> {
+        const answers = new Map<string, string>();
 
-        const AnswerObj: AnswerObj = {
-            qestionId: questionId,
-            type: QuestionType.DROPDOWN_MATCH,
-            answer: new Map<string, string>(),
-        };
-
-        const questions = await this.matchingQuestions;
-        for (const [index, dropdown] of questions.entries()) {
+        const matchItems = await this.matchingQuestions;
+        for (const [index, dropdown] of matchItems.entries()) {
             const correctAns = await this.getDropdownButton(dropdown)
                 .locator("div.dropdown__inner")
                 .textContent();
             if (!correctAns) continue;
 
-            AnswerObj.answer.set(index.toString(), correctAns.trim());
+            answers.set(index.toString(), correctAns.trim());
         }
-        if (AnswerObj.answer.size === 0) return null;
 
+        return answers;
+    }
+
+    private async extractAnswerFromFeedbackTable(): Promise<Map<string, string>> {
+        const answersMap = new Map<string, string>();
+        const correctAnswers: string[] = [];
+
+        for (const option of await this.feedbackTable.locator("tr th").all()) {
+            const text = await this.getOptionId(option);
+            if (text) correctAnswers.push(text);
+        }
+
+        for (const row of await this.feedbackTable.locator("tr").all()) {
+            const cells = await row.locator("td").all();
+            // skips header row because it has no td cells
+            if (!cells.length) continue;
+
+            for (const [colIndex, cell] of cells.entries()) {
+                const matchItemId = await this.getOptionId(cell);
+                const correctAnswer = correctAnswers[colIndex];
+                if (!matchItemId || !correctAnswer) continue;
+
+                answersMap.set(matchItemId, correctAnswer);
+            }
+        }
+
+        return answersMap;
+    }
+
+    async extractCorrectAnswer(): Promise<AnswerObj | null> {
+        const questionId = await ExamHelper.getUniqueQuestionId(this.question);
+        if (!questionId) return null;
+
+        const hasFeedbackTable = (await this.feedbackTable.count()) > 0;
+
+        const AnswerObj: AnswerObj = {
+            qestionId: questionId,
+            type: QuestionType.DROPDOWN_MATCH,
+            answer: hasFeedbackTable
+                ? await this.extractAnswerFromFeedbackTable()
+                : await this.extractAnswerFromSelectedOptions(),
+        };
+
+        if (AnswerObj.answer.size === 0) return null;
         return AnswerObj;
     }
 

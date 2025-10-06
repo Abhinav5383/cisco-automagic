@@ -35,6 +35,7 @@ export class CiscoBot {
                 "--start-maximized",
                 "--disable-threaded-animation",
                 "--disable-animations",
+                "--force-prefers-reduced-motion",
             ],
         });
         const page = await browser.newPage();
@@ -89,7 +90,6 @@ export class CiscoBot {
         }
 
         await heading.scrollIntoViewIfNeeded();
-        await new ActivityHelper(this, section).doActivities();
 
         const sectionDimenstions = await section.boundingBox();
         // Each PageDown scrolls approx 400px
@@ -97,11 +97,13 @@ export class CiscoBot {
 
         while (downBtnClicks-- >= 0) {
             await this.page.keyboard.press("PageDown");
-            await sleep(160);
+            await sleep(200);
         }
 
         await this.page.keyboard.press("PageDown");
         await sleep(150);
+
+        await new ActivityHelper(this, section).doActivities();
     }
 
     private async startScrollingModules() {
