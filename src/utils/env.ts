@@ -1,4 +1,4 @@
-const envKeys = ["USERNAME", "PASSWORD"] as const;
+const envKeys = ["USERNAME", "PASSWORD", "COURSE_BTN_ID"] as const;
 
 type EnvKeys = (typeof envKeys)[number];
 const env = {} as Record<EnvKeys, string>;

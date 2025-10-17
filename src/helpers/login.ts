@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 import { sleep } from "bun";
 
-export async function doLogin(page: Page, username: string, password: string) {
+export async function doLogin(page: Page, username: string, password: string, isRetry = false) {
     await page.goto("https://www.netacad.com/dashboard");
     await sleep(2000);
     const loginBtn = page.getByRole("button").filter({ hasText: "Login" });
@@ -23,7 +23,12 @@ export async function doLogin(page: Page, username: string, password: string) {
         await sleep(200);
 
         if (await page.locator("[role='alert'] .alert__message").isVisible()) {
-            throw new Error("Login Failed! Invalid Credentials");
+            if (!isRetry) {
+                console.log("Login Failed! Retrying...");
+                return await doLogin(page, username, password, true);
+            } else {
+                throw new Error("Login Failed! Invalid Credentials");
+            }
         }
 
         if (page.url().includes("www.netacad.com/dashboard")) {

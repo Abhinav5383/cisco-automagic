@@ -88,8 +88,9 @@ export class ExamHelper {
             .first();
     }
     private async skipAllQuestions() {
-        await click(this.skipAllButton);
-        await forceClick(this.skipAllButton);
+        if (await this.skipAllButton.count()) {
+            await click(this.skipAllButton);
+        }
 
         await this.waitForFinalSubmitScreen();
     }
@@ -216,7 +217,7 @@ export class ExamHelper {
     }
 
     private async gatherAnswers() {
-        const maxIters = 5;
+        const maxIters = 6;
         let newAnswersFound = 0;
         let iters = 0;
 
@@ -260,9 +261,10 @@ export class ExamHelper {
         }
         await this.beginExam();
 
+        let prevQuestionId = "";
         let questionsSkipped = 0;
         for (let i = 0; i < this.totalQuestions; i++) {
-            await sleep(50);
+            await sleep(200);
 
             // need to get the question elements array again because the new question is pushed after submission
             const question = (await this.questionElements).pop();
@@ -271,9 +273,20 @@ export class ExamHelper {
             const questionId = await ExamHelper.getUniqueQuestionId(question);
             if (!questionId) break;
 
+            if (questionId === prevQuestionId) {
+                console.log("New question hasn't appeared yet, waiting...");
+                await sleep(200);
+                await this.submitOrSkipQuestion();
+                i--;
+                continue;
+            }
+            prevQuestionId = questionId;
+
             const correctAns = ANSWERS.get(questionId);
             if (!correctAns) {
-                console.log("Answer not found, Skipping question!");
+                console.log(
+                    `Question (${questionId}) ${i + 1}/${this.totalQuestions}: Answer not found, Skipping question!`,
+                );
                 questionsSkipped++;
                 await this.skipQuestion();
                 continue;
@@ -285,6 +298,7 @@ export class ExamHelper {
             );
 
             await ExamHelper.answerQuestion(question, correctAns);
+            await sleep(100);
             await this.submitOrSkipQuestion();
         }
 
@@ -356,6 +370,11 @@ export class MCQ_Helper extends QuestionHelperBase {
 
     private async selectAnswer(option: Locator) {
         const label = option.locator("label");
+        await jsClick(label);
+        await sleep(60);
+        if ((await label.getAttribute("class"))?.includes("selected")) return;
+
+        console.log("jsClick didn't work, falling back to normal click.");
         await click(label);
     }
 
@@ -664,13 +683,13 @@ export class MatchingActivity_Helper extends QuestionHelperBase {
         const answers = new Map<string, string>();
 
         const matchItems = await this.matchingQuestions;
-        for (const [index, dropdown] of matchItems.entries()) {
-            const correctAns = await this.getDropdownButton(dropdown)
+        for (const [index, matchQuestion] of matchItems.entries()) {
+            const correctAns = await this.getDropdownButton(matchQuestion)
                 .locator("div.dropdown__inner")
                 .textContent();
             if (!correctAns) continue;
 
-            answers.set(index.toString(), correctAns.trim());
+            answers.set(index.toString(), correctAns.trim().toLowerCase());
         }
 
         return answers;
@@ -685,17 +704,27 @@ export class MatchingActivity_Helper extends QuestionHelperBase {
             if (text) correctAnswers.push(text);
         }
 
+        const matchQuestionsText: string[] = [];
+        for (const matchQuestion of await this.matchingQuestions) {
+            const text = (await this.getDropdownButton(matchQuestion).textContent())
+                ?.trim()
+                ?.toLowerCase();
+            if (text) matchQuestionsText.push(text);
+        }
+
         for (const row of await this.feedbackTable.locator("tr").all()) {
             const cells = await row.locator("td").all();
             // skips header row because it has no td cells
             if (!cells.length) continue;
 
             for (const [colIndex, cell] of cells.entries()) {
-                const matchItemId = await this.getOptionId(cell);
+                const matchQuestionId = await this.getOptionId(cell);
                 const correctAnswer = correctAnswers[colIndex];
-                if (!matchItemId || !correctAnswer) continue;
 
-                answersMap.set(matchItemId, correctAnswer);
+                const matchQuestionIndex = matchQuestionsText.indexOf(matchQuestionId || "");
+                if (!matchQuestionId || !correctAnswer || matchQuestionIndex < 0) continue;
+
+                answersMap.set(matchQuestionIndex.toString(), correctAnswer);
             }
         }
 
@@ -735,10 +764,12 @@ export class MatchingActivity_Helper extends QuestionHelperBase {
 
         const showCorrectBtn = this.question.locator("button.show-answer-on-submit");
         if (!(await showCorrectBtn.count())) return;
+
         await forceClick(showCorrectBtn);
         await sleep(100);
 
         const correctAnswer = await this.extractCorrectAnswer();
+        console.log("Correct answer extracted:", correctAnswer?.answer);
         if (!correctAnswer) return;
 
         await resetFn();

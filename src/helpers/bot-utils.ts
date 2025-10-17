@@ -25,7 +25,8 @@ export class BotUtilities {
         const header = section
             .locator(".component__header .component__content h1")
             .or(section.locator(".article__header .article__title-inner"))
-            .or(section.locator(".component__widget .module-title"));
+            .or(section.locator(".component__widget .module-title"))
+            .first();
 
         return header;
     }

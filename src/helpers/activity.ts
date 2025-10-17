@@ -28,6 +28,14 @@ export class ActivityHelper {
         await jsClick(this.notifyPopupCloseBtn, 1000);
     }
 
+    get labPopupCloseBtn() {
+        return this.utils.getModuleFrame().locator(".close-btn-popup button.close-btn");
+    }
+    async closeLabPopup() {
+        if (!(await this.labPopupCloseBtn.count())) return;
+        await click(this.labPopupCloseBtn, 1000);
+    }
+
     async doActivities() {
         const ActivityTypes = [
             MultiQuestionAssessment_Activity,
@@ -38,6 +46,7 @@ export class ActivityHelper {
             ContentTabsActivity,
             CheckYourAnswerActivity,
             NarrativeActivity,
+            FlipcardActivity,
         ];
 
         for (const ActivityType of ActivityTypes) {
@@ -283,30 +292,41 @@ class VideoPlayerActivity extends ActivityBase {
 }
 
 class ContentLinksActivity extends ActivityBase {
+    static get activityContainers() {
+        return [
+            "div.component.pagetracer",
+            ".component.packettracer__inner",
+            ".component.packettracer",
+        ];
+    }
+
     static async isInside(section: Locator) {
-        return (await section.locator("div.content-links-widget").count()) > 0;
+        return (
+            (await section.locator(ContentLinksActivity.activityContainers.join(", ")).count()) > 0
+        );
     }
 
     private get contentLinks() {
-        return this.section.locator("div.content-links-widget");
+        return this.section.locator(
+            ContentLinksActivity.activityContainers
+                .map((parent) => `${parent} .component__widget`)
+                .join(", "),
+        );
     }
 
     private async clickContentLink(widget: Locator) {
         if (await widget.isHidden()) return;
 
-        const mainBtn = widget.locator("button.open-dialog.btn__action");
+        const mainBtn = widget.locator("button.btn__action");
         if (await mainBtn.count()) {
-            await click(mainBtn);
+            await click(mainBtn, 500);
         } else {
             const alt = widget.locator("a.btn__action");
-            await alt.evaluate((alt: HTMLAnchorElement) => {
-                alt.href = "#";
-                alt.addEventListener("click", (e) => {
-                    e.stopImmediatePropagation();
-                });
-            });
+            await click(alt, 500);
         }
 
+        await sleep(200);
+        await this.activityHelper.closeLabPopup();
         await sleep(200);
     }
 
@@ -364,8 +384,9 @@ class AccordionActivity extends ActivityBase {
 
         for (const acc of await this.accordions) {
             await jsClick(acc);
-            await sleep(100);
+            await sleep(200);
         }
+
         console.log(this.completedMsg);
     }
 
@@ -535,7 +556,7 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
         }
 
         const testFn = async () => {
-            await sleep(150);
+            await sleep(50);
             await forceClick(SingleQuestionSectionQuiz_Activity.getSubmitButton(question));
             await this.activityHelper.closeNotifyPopup();
 
@@ -545,8 +566,11 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
         };
 
         const resetFn = async () => {
-            await sleep(150);
-            await forceClick(SingleQuestionSectionQuiz_Activity.getResetButton(question));
+            const resetBtn = SingleQuestionSectionQuiz_Activity.getResetButton(question);
+            await sleep(50);
+            if (!(await resetBtn.count())) return;
+
+            await forceClick(resetBtn, 1000);
         };
 
         const questionHelper = await ExamHelper.constructQuestionHelper(question);
@@ -604,5 +628,30 @@ class NarrativeActivity extends ActivityBase {
         }
 
         console.log("Completed Narrative Activity.");
+    }
+}
+
+class FlipcardActivity extends ActivityBase {
+    static async isInside(section: Locator) {
+        return (await section.locator("div.component.flipcard").count()) > 0;
+    }
+
+    private get flipcards() {
+        return this.section.locator("div.component.flipcard button.flipcard__item").all();
+    }
+
+    private async flipDaCard(card: Locator) {
+        await jsClick(card);
+        await sleep(300);
+    }
+
+    async doActivity() {
+        console.log("Doing Flipcard Activity...");
+
+        for (const card of await this.flipcards) {
+            await this.flipDaCard(card);
+        }
+
+        console.log("Completed Flipcard Activity.");
     }
 }
