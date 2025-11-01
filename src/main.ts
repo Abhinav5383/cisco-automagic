@@ -28,7 +28,7 @@ export class CiscoBot {
 
     static async create() {
         const browser = await chromium.launch({
-            executablePath: "/usr/bin/chromium",
+            executablePath: env.CHROMIUM_PATH || "/usr/bin/chromium",
             headless: false,
             args: [
                 "--use-gl=egl",
