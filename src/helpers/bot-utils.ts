@@ -128,7 +128,7 @@ export class BotUtilities {
 
         if (preloaderAppeared && !iframeLoaderAppeared && retry > 0) {
             await sleep(3000);
-            await this.waitForLoadersToDisappear(retry--);
+            await this.waitForLoadersToDisappear(retry - 1);
             return;
         }
 

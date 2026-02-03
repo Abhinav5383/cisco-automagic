@@ -1,4 +1,4 @@
-import { type Browser, chromium, type Locator, type Page } from "@playwright/test";
+import { type Browser, type Locator, type Page, chromium } from "@playwright/test";
 import { sleep } from "bun";
 import { ActivityHelper } from "./helpers/activity";
 import { BotUtilities } from "./helpers/bot-utils";
@@ -74,6 +74,49 @@ export class CiscoBot {
         await this.cleanup();
     }
 
+    private async startScrollingModules() {
+        await this.closeIntroDialogs();
+        const incompleteSections: Locator[] = [];
+
+        for (const section of await this.utils.getSections().all()) {
+            if (await this.utils.isSectionCompleted(section)) continue;
+            const headerText = await this.utils.getSectionHeaderText(section);
+            // skip the first section as it doesn't need to be completed
+            // the first section is always numbered like X.Y
+            if (!headerText || /^\d+\.\d+\s/.test(headerText.trim())) continue;
+
+            incompleteSections.push(section);
+        }
+
+        let focusedInside = false;
+
+        for (const section of incompleteSections) {
+            try {
+                if (!focusedInside) {
+                    await section.click();
+                    focusedInside = true;
+                }
+
+                await this.completeSection(section);
+            } catch (err) {
+                console.error("Error completing section activities:", err);
+            }
+        }
+
+        await this.page.keyboard.press("End");
+        await sleep(150);
+    }
+
+    private async closeIntroDialogs() {
+        const introDialog = this.utils
+            .getModuleFrame()
+            .locator(".introoutro__video[role='dialog']");
+        if (!(await introDialog.count())) return;
+
+        const closeBtn = introDialog.locator("button.introoutro__skip");
+        await click(closeBtn, 3000);
+    }
+
     private async cleanup() {
         await this.page.close();
         await this.browser.close();
@@ -124,38 +167,6 @@ export class CiscoBot {
         await sleep(200);
 
         await new ActivityHelper(this, section).doActivities();
-    }
-
-    private async startScrollingModules() {
-        const incompleteSections: Locator[] = [];
-
-        for (const section of await this.utils.getSections().all()) {
-            if (await this.utils.isSectionCompleted(section)) continue;
-            const headerText = await this.utils.getSectionHeaderText(section);
-            // skip the first section as it doesn't need to be completed
-            // the first section is always numbered like X.Y
-            if (!headerText || /^\d+\.\d+\s/.test(headerText.trim())) continue;
-
-            incompleteSections.push(section);
-        }
-
-        let focusedInside = false;
-
-        for (const section of incompleteSections) {
-            try {
-                if (!focusedInside) {
-                    await section.click();
-                    focusedInside = true;
-                }
-
-                await this.completeSection(section);
-            } catch (err) {
-                console.error("Error completing section activities:", err);
-            }
-        }
-
-        await this.page.keyboard.press("End");
-        await sleep(150);
     }
 
     private get welcomeMessage() {
