@@ -5,19 +5,21 @@ import {
     type AnswerObj,
     type BruteForceResetFn,
     type BruteForceTestFn,
+    type NextQues_Response,
+    type QuestionComponentResponse,
     QuestionType,
 } from "../types";
-import { combinations, random } from "../utils";
+import { combinations } from "../utils";
 import { waitForUserIntervention } from "../utils/prompt";
 import type { BotUtilities } from "./bot-utils";
 import { click, forceClick, jsClick } from "./misc";
 
 const ANSWERS = new Map<string, AnswerObj>();
+let listeningForAnswers = false;
 
 export class ExamHelper {
     utils: BotUtilities;
     section: Locator;
-    totalQuestions = 0;
 
     constructor(parent: CiscoBot, section: Locator) {
         this.utils = parent.utils;
@@ -151,20 +153,22 @@ export class ExamHelper {
         }
     }
 
-    static async determineQuestionType(question: Locator): Promise<QuestionType | null> {
-        const classList = await question.getAttribute("class");
+    static async determineQuestionType(question: Locator | string): Promise<QuestionType | null> {
+        const q_Loc = typeof question === "string" ? null : question;
+        const classList =
+            typeof question === "string" ? question : await question.getAttribute("class");
 
-        if (classList?.includes("mcq") || (await question.locator(".mcq").count())) {
+        if (classList?.includes("mcq") || (await q_Loc?.locator(".mcq").count())) {
             return QuestionType.MCQ;
         } else if (
             classList?.includes("objectmatching") ||
-            (await question.locator(".objectmatching").count())
+            (await q_Loc?.locator(".objectmatching").count())
         ) {
             return QuestionType.OBJECT_MATCH;
         } else if (
             classList?.includes("matching") ||
             classList?.includes("matchinggraphic") ||
-            (await question.locator(".matching, .matchinggraphic").count())
+            (await q_Loc?.locator(".matching, .matchinggraphic").count())
         ) {
             return QuestionType.DROPDOWN_MATCH;
         }
@@ -247,7 +251,6 @@ export class ExamHelper {
                 `Found answers for ${newAnswersFound} new questions. Total answers: ${ANSWERS.size}`,
             );
 
-            if (this.totalQuestions === 0) this.totalQuestions = questions.length;
             await click(this.examResetButton);
             await sleep(300);
         } while (++iters < maxIters && newAnswersFound > 2);
@@ -255,37 +258,62 @@ export class ExamHelper {
         console.log(`Gathered answers for ${ANSWERS.size} questions.`);
     }
 
+    private async isQuestionInView() {
+        return (await this.questionSubmitBtn.count()) > 0;
+    }
+
     private async answerQuestionsList() {
-        if (!this.totalQuestions) {
-            throw new Error("Fie! No questions be spied, not even a mouse’s whisper!");
-        }
         await this.beginExam();
 
-        let prevQuestionId = "";
+        let questionsCounter = 0;
         let questionsSkipped = 0;
-        for (let i = 0; i < this.totalQuestions; i++) {
-            await sleep(200);
+        let prevQuestionId = "";
 
-            // need to get the question elements array again because the new question is pushed after submission
+        while (true) {
+            await this.utils.waitForLoadersToDisappear(1);
+
+            // just a double check
+            if (!(await this.isQuestionInView())) {
+                await this.utils.waitForLoadersToDisappear(1);
+            }
+            if (!(await this.isQuestionInView())) {
+                console.log("No question in view, assuming exam is complete.");
+                break;
+            }
+
             const question = (await this.questionElements).pop();
-            if (!question) break;
-
+            if (!question) {
+                console.log("No more question elements!");
+                break;
+            }
             const questionId = await ExamHelper.getUniqueQuestionId(question);
-            if (!questionId) break;
+            if (!questionId) {
+                console.log("Question without ID, skipping...");
+                await this.submitOrSkipQuestion();
+                continue;
+            }
 
             if (questionId === prevQuestionId) {
-                console.log("New question hasn't appeared yet, waiting...");
-                await sleep(200);
-                await this.submitOrSkipQuestion();
-                i--;
+                await this.utils.waitForLoadersToDisappear(1);
+                const newLastQuestion = (await this.questionElements).pop();
+                const newQuestionId = newLastQuestion
+                    ? await ExamHelper.getUniqueQuestionId(newLastQuestion)
+                    : null;
+
+                if (newQuestionId && newQuestionId !== prevQuestionId) {
+                    console.log("New question loaded after waiting, continuing...");
+                } else {
+                    await this.submitOrSkipQuestion();
+                }
                 continue;
             }
             prevQuestionId = questionId;
+            questionsCounter++;
 
             const correctAns = ANSWERS.get(questionId);
             if (!correctAns) {
                 console.log(
-                    `Question (${questionId}) ${i + 1}/${this.totalQuestions}: Answer not found, Skipping question!`,
+                    `Question ${questionsCounter} (${questionId}): Answer not found, Skipping question!`,
                 );
                 questionsSkipped++;
                 await this.skipQuestion();
@@ -293,7 +321,7 @@ export class ExamHelper {
             }
 
             console.log(
-                `Question (${questionId}) ${i + 1}/${this.totalQuestions}, Type: ${correctAns.type}, Answer:`,
+                `Question ${questionsCounter} (${questionId}), Type: ${correctAns.type}, Answer:`,
                 correctAns.answer,
             );
 
@@ -307,12 +335,11 @@ export class ExamHelper {
             await this.skipAllQuestions();
         }
 
-        const requiredQuestionsToAnswer = Math.ceil(0.7 * this.totalQuestions);
-        if (this.totalQuestions - questionsSkipped < requiredQuestionsToAnswer) {
-            const moreToAnswer =
-                requiredQuestionsToAnswer - (this.totalQuestions - questionsSkipped);
+        const requiredQuestionsToAnswer = Math.ceil(0.7 * questionsCounter);
+        if (questionsCounter - questionsSkipped < requiredQuestionsToAnswer) {
+            const moreToAnswer = requiredQuestionsToAnswer - (questionsCounter - questionsSkipped);
             await waitForUserIntervention(
-                `Ho ho! I’ve duck’d ${questionsSkipped} of ${this.totalQuestions} questions like a knave dodging tavern debts. Bestir thy wits, for ${moreToAnswer} more yet demand thine answer!`,
+                `Ho ho! I’ve duck’d ${questionsSkipped} of ${questionsCounter} questions like a knave dodging tavern debts. Bestir thy wits, for ${moreToAnswer} more yet demand thine answer!`,
             );
         }
 
@@ -321,27 +348,98 @@ export class ExamHelper {
     }
 
     async doExam() {
+        this.monitorRequestsForAnswers();
         if (await ExamHelper.isExamComplete(this.section)) return;
         if (await this.examResetButton.isVisible()) await click(this.examResetButton);
 
         await this.beginExam();
         await this.utils.waitForLoadersToDisappear();
 
-        if (await this.hasCountdownTimer()) {
-            console.log(this.skippingFinalExamMessage);
-            return;
+        if (!(await this.hasCountdownTimer())) {
+            await this.gatherAnswers();
         }
-
-        await this.gatherAnswers();
         await this.answerQuestionsList();
     }
 
-    private get skippingFinalExamMessage() {
-        return random([
-            "As a humble bot, I must confess my limitations. The final exam is a challenge I cannot surmount, and thus I shall forgo it.",
-            "Alas, the final exam is a riddle beyond my mechanical grasp. I must skip it, for I am but a simple bot.",
-            "The final exam stands as a fortress I cannot breach. With a heavy heart, I must skip it, for I am but a bot.",
-        ]);
+    monitorRequestsForAnswers() {
+        if (listeningForAnswers) return;
+        listeningForAnswers = true;
+        this.utils.page.on("response", async (res) => {
+            const resUrl = res.url();
+
+            let resData: QuestionComponentResponse | null = null;
+            if (resUrl.includes("/v2/getQuestionAt")) {
+                try {
+                    resData = ((await res.json()) as { component: QuestionComponentResponse })
+                        .component;
+                } catch (e) {
+                    console.error("Failed to parse response for /v2/getQuestionAt:", e);
+                }
+            } else if (resUrl.includes("/v2/answerQuestion")) {
+                try {
+                    resData = ((await res.json()) as NextQues_Response).nextQuestion.component;
+                } catch (e) {
+                    console.error("Failed to parse response for /v2/answerQuestion:", e);
+                }
+            }
+
+            if (!resData) return;
+
+            const correctOptionsStr = resData._smvWiseScoring.outcomes.interpretvar[0]?.interpret;
+            if (!correctOptionsStr) {
+                console.warn(
+                    "No interpret string found in response, cannot extract correct options.",
+                    resData,
+                );
+                return;
+            }
+
+            const correctOptions = this.correctOptionsFromApiStr(correctOptionsStr);
+            if (!correctOptions.length) {
+                console.warn(
+                    "Could not extract any correct options from interpret string:",
+                    correctOptionsStr,
+                );
+                return;
+            }
+
+            const questionId = resData._id;
+            const questionType = await ExamHelper.determineQuestionType(resData._component);
+            if (!questionType) return;
+
+            let answer: AnswerObj;
+            if (questionType === QuestionType.MCQ) {
+                answer = {
+                    qestionId: questionId,
+                    type: QuestionType.MCQ,
+                    answer: correctOptions.map((opt) => opt.toString()),
+                };
+
+                ANSWERS.set(questionId, answer);
+                console.log(`Extracted answer for question ${questionId}:`, answer);
+            }
+
+            // can't find a sample for matching type questions atm, so gonna leave that for now
+        });
+    }
+
+    correctOptionsFromApiStr(str: string): number[] {
+        const tokens = str.split(" ");
+        const correctOptions: number[] = [];
+
+        for (let i = 0; i < tokens.length; i++) {
+            if (tokens[i] === "Option") {
+                const correctOption = tokens[i + 1]?.trim()[0];
+                if (!correctOption) continue;
+                const parsed = Number.parseInt(correctOption, 10);
+                if (!Number.isNaN(parsed)) {
+                    // minus 1 because the options in the string are 1-indexed
+                    correctOptions.push(parsed - 1);
+                }
+            }
+        }
+
+        return correctOptions;
     }
 }
 
