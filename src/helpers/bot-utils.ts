@@ -65,8 +65,8 @@ export class BotUtilities {
     async waitForNextBtnToBeEnabled() {
         let tries = 100;
         while (tries--) {
-            if ((await this.nextBtn.getAttribute("disabled")) === null) return;
             if (!(await this.nextBtn.count())) return;
+            if ((await this.nextBtn.getAttribute("disabled")) === null) return;
             await sleep(300);
         }
 
@@ -139,6 +139,7 @@ export class BotUtilities {
         const prevPageMark = await this.getFirstNonEmptyHeaderText();
 
         await this.waitForNextBtnToBeEnabled();
+        if (!(await this.nextBtn.count())) return false;
         if ((await this.nextBtn.getAttribute("disabled")) !== null) return false;
 
         await forceClick(this.nextBtn);
