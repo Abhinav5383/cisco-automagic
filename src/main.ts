@@ -1,4 +1,4 @@
-import { type Browser, type Locator, type Page, chromium } from "@playwright/test";
+import { type Browser, chromium, type Locator, type Page } from "@playwright/test";
 import { sleep } from "bun";
 import { ActivityHelper } from "./helpers/activity";
 import { BotUtilities } from "./helpers/bot-utils";
@@ -128,13 +128,13 @@ export class CiscoBot {
         if (await click(courseLink, 30_000)) {
             console.log("Navigating to the course...");
             await sleep(30_000);
-            await this.utils.waitForLoadersToDisappear();
         } else {
             console.log("Could not find the course link automatically.");
             await waitForUserIntervention(
                 "Please navigate to the desired course manually and then press 'Enter' here to proceed.",
             );
         }
+        await this.utils.waitForLoadersToDisappear();
     }
 
     private async completeSection(section: Locator) {
