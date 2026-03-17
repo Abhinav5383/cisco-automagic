@@ -79,12 +79,12 @@ export class CiscoBot {
         const incompleteSections: Locator[] = [];
 
         for (const section of await this.utils.getSections().all()) {
-            if (await this.utils.isSectionCompleted(section)) continue;
             const headerText = await this.utils.getSectionHeaderText(section);
+            if (await this.utils.isSectionCompleted(headerText ?? "")) continue;
+
             // skip the first section as it doesn't need to be completed
             // the first section is always numbered like X.Y
             if (!headerText || /^\d+\.\d+\s/.test(headerText.trim())) continue;
-
             incompleteSections.push(section);
         }
 
