@@ -4,29 +4,23 @@ export async function click(elem: Locator, timeout = 3000) {
     try {
         await elem.click({ timeout });
         return true;
-    } catch (err) {
-        console.trace(err);
-    }
+    } catch {}
 
     try {
         await elem.click({ force: true, timeout });
         return true;
-    } catch (err) {
-        console.trace(err);
+    } catch {
+        return false;
     }
-
-    return false;
 }
 
 export async function forceClick(elem: Locator, timeout = 3000) {
     try {
         await elem.click({ force: true, timeout });
         return true;
-    } catch (err) {
-        console.trace(err);
+    } catch {
+        return false;
     }
-
-    return false;
 }
 
 export async function jsClick(elem: Locator, timeout = 3000) {
@@ -39,20 +33,16 @@ export async function jsClick(elem: Locator, timeout = 3000) {
             { timeout },
         );
         return true;
-    } catch (err) {
-        console.trace(err);
+    } catch {
+        return false;
     }
-
-    return false;
 }
 
 export async function scrollIntoView(elem: Locator, timeout = 3000) {
     try {
         await elem.scrollIntoViewIfNeeded({ timeout });
         return true;
-    } catch (err) {
-        console.trace(err);
+    } catch {
+        return false;
     }
-
-    return false;
 }
