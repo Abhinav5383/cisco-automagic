@@ -43,7 +43,6 @@ export class BotUtilities {
 
     async isSectionCompleted(section: Locator) {
         const headerText = await this.getSectionHeaderText(section);
-        console.log(headerText);
 
         if (!headerText?.trim() || headerText.toLowerCase().startsWith("complete")) {
             return true;
