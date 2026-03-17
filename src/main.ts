@@ -80,7 +80,7 @@ export class CiscoBot {
 
         for (const section of await this.utils.getSections().all()) {
             const headerText = await this.utils.getSectionHeaderText(section);
-            if (await this.utils.isSectionCompleted(headerText ?? "")) continue;
+            if (this.utils.isSectionCompleted(headerText ?? "")) continue;
 
             // skip the first section as it doesn't need to be completed
             // the first section is always numbered like X.Y
