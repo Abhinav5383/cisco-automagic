@@ -6,13 +6,13 @@ export enum QuestionType {
 
 export type AnswerObj =
     | {
-          qestionId: string;
+          questionId: string;
           type: QuestionType.MCQ;
           // answer_text[]
           answer: string[];
       }
     | {
-          qestionId: string;
+          questionId: string;
           type: QuestionType.OBJECT_MATCH | QuestionType.DROPDOWN_MATCH;
           // question_text : answer_text
           answer: Map<string, string>;
