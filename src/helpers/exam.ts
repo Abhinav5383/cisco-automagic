@@ -347,7 +347,7 @@ export class ExamHelper {
         await this.answerQuestionsList();
     }
 
-    monitorRequestsForAnswers() {
+    private monitorRequestsForAnswers() {
         if (listeningForAnswers) return;
         listeningForAnswers = true;
         this.utils.page.on("response", async (res) => {
@@ -409,7 +409,7 @@ export class ExamHelper {
         });
     }
 
-    correctOptionsFromApiStr(str: string): number[] {
+    private correctOptionsFromApiStr(str: string): number[] {
         const tokens = str.split(" ");
         const correctOptions: number[] = [];
 
@@ -492,7 +492,7 @@ export class MCQ_Helper extends QuestionHelperBase {
         const questionId = await ExamHelper.getUniqueQuestionId(this.question);
         if (!questionId) return null;
 
-        const AnswerObj: AnswerObj = {
+        const ans: AnswerObj = {
             questionId: questionId,
             type: QuestionType.MCQ,
             answer: [] as string[],
@@ -501,10 +501,10 @@ export class MCQ_Helper extends QuestionHelperBase {
 
         for (const answer of correctAnswers) {
             const ansId = await this.getOptionIdentifier(answer);
-            if (ansId) AnswerObj.answer.push(ansId);
+            if (ansId) ans.answer.push(ansId);
         }
 
-        return AnswerObj;
+        return ans;
     }
 
     private async maxSelectableOptions() {
@@ -683,7 +683,7 @@ export class ObjectMatch_Helper extends QuestionHelperBase {
         const questionId = await ExamHelper.getUniqueQuestionId(this.question);
         if (!questionId) return null;
 
-        const AnswerObj: AnswerObj = {
+        const ans: AnswerObj = {
             questionId: questionId,
             type: QuestionType.OBJECT_MATCH,
             answer: new Map<string, string>(),
@@ -697,11 +697,11 @@ export class ObjectMatch_Helper extends QuestionHelperBase {
             const rhsText = await rhs.textContent();
             if (!lhsText || !rhsText) continue;
 
-            AnswerObj.answer.set(lhsText.trim().toLowerCase(), rhsText.trim().toLowerCase());
+            ans.answer.set(lhsText.trim().toLowerCase(), rhsText.trim().toLowerCase());
         }
 
-        if (AnswerObj.answer.size === 0) return null;
-        return AnswerObj;
+        if (ans.answer.size === 0) return null;
+        return ans;
     }
 
     async guessAnswer(testFn: BruteForceTestFn, _resetFn: BruteForceResetFn) {
@@ -821,7 +821,7 @@ export class MatchingActivity_Helper extends QuestionHelperBase {
 
         const hasFeedbackTable = (await this.feedbackTable.count()) > 0;
 
-        const AnswerObj: AnswerObj = {
+        const ans: AnswerObj = {
             questionId: questionId,
             type: QuestionType.DROPDOWN_MATCH,
             answer: hasFeedbackTable
@@ -829,8 +829,8 @@ export class MatchingActivity_Helper extends QuestionHelperBase {
                 : await this.extractAnswerFromSelectedOptions(),
         };
 
-        if (AnswerObj.answer.size === 0) return null;
-        return AnswerObj;
+        if (ans.answer.size === 0) return null;
+        return ans;
     }
 
     private async justAnswerIt() {
