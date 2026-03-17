@@ -71,7 +71,7 @@ class ActivityBase {
 
 class MultiQuestionAssessment_Activity extends ActivityBase {
     static async isInside(section: Locator) {
-        return (await section.getAttribute("class"))?.includes("assessmentsinglesubmit");
+        return !!(await section.getAttribute("class"))?.includes("assessmentsinglesubmit");
     }
 
     private get assessmentContainer() {
@@ -526,10 +526,8 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
     static async isInside(section: Locator) {
         const questionBox = section.locator(".component.is-question");
         const hasQuestions = (await questionBox.count()) > 0;
-        const hasSubmitBtn = await questionBox
-            .locator(".btn__container button")
-            .getByText("submit")
-            .count();
+        const hasSubmitBtn =
+            (await questionBox.locator(".btn__container button").getByText("submit").count()) > 0;
 
         return hasQuestions && hasSubmitBtn;
     }
@@ -559,10 +557,7 @@ class SingleQuestionSectionQuiz_Activity extends ActivityBase {
             await sleep(50);
             await forceClick(SingleQuestionSectionQuiz_Activity.getSubmitButton(question));
             await this.activityHelper.closeNotifyPopup();
-
-            const isCorrectGuess = await SingleQuestionSectionQuiz_Activity.isCorrect(question);
-            if (isCorrectGuess) return true;
-            return false;
+            return SingleQuestionSectionQuiz_Activity.isCorrect(question);
         };
 
         const resetFn = async () => {
