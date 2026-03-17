@@ -36,9 +36,7 @@ export async function jsClick(elem: Locator, timeout = 3000) {
                 elem.click();
             },
             undefined,
-            {
-                timeout: timeout,
-            },
+            { timeout },
         );
         return true;
     } catch (err) {
@@ -51,19 +49,6 @@ export async function jsClick(elem: Locator, timeout = 3000) {
 export async function scrollIntoView(elem: Locator, timeout = 3000) {
     try {
         await elem.scrollIntoViewIfNeeded({ timeout });
-        return true;
-    } catch (err) {
-        console.trace(err);
-    }
-
-    return false;
-}
-
-export async function waitUntilClickable(elem: Locator, timeout = 3000) {
-    try {
-        await elem.waitFor({ state: "visible", timeout });
-        await elem.isEnabled({ timeout });
-
         return true;
     } catch (err) {
         console.trace(err);
