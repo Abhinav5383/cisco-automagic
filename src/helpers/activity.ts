@@ -138,7 +138,7 @@ class MultiQuestionAssessment_Activity extends ActivityBase {
         for (const question of await this.assessmentQuestions) {
             const answer = await ExamHelper.extractAnswer(question);
             console.log(answer);
-            if (answer) ASSESSMENT_ANSWERS.set(answer.qestionId, answer);
+            if (answer) ASSESSMENT_ANSWERS.set(answer.questionId, answer);
         }
 
         await sleep(100);
@@ -220,13 +220,13 @@ class VideoPlayerActivity extends ActivityBase {
 
     private async skipToEnd(videoFrame: FrameLocator) {
         const progressBar = videoFrame.locator("div.vjs-progress-holder.vjs-slider");
-        const progressBarDimenstions = await progressBar.boundingBox();
-        if (!progressBarDimenstions) return;
+        const progressBarDimensions = await progressBar.boundingBox();
+        if (!progressBarDimensions) return;
 
         await progressBar.click({
             position: {
-                x: progressBarDimenstions.width - 2,
-                y: progressBarDimenstions.height / 2,
+                x: progressBarDimensions.width - 2,
+                y: progressBarDimensions.height / 2,
             },
             force: true,
         });
