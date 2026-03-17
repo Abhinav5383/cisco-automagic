@@ -330,7 +330,7 @@ export class ExamHelper {
         }
 
         await this.submitAssessment();
-        await sleep(1000);
+        await sleep(2000);
     }
 
     async doExam() {

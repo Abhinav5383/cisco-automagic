@@ -59,6 +59,26 @@ export class BotUtilities {
         return null;
     }
 
+    private async waitForOptionalLoaderToDisappear(
+        locator: Locator,
+        timeout: number,
+        appearTimeout = 750,
+    ) {
+        try {
+            await locator.waitFor({ state: "visible", timeout: appearTimeout });
+        } catch {
+            return false;
+        }
+
+        try {
+            await locator.waitFor({ state: "hidden", timeout });
+        } catch {
+            return false;
+        }
+
+        return true;
+    }
+
     async waitForNextBtnToBeEnabled() {
         let tries = 100;
         while (tries--) {
@@ -72,16 +92,7 @@ export class BotUtilities {
 
     private async waitForPreloaderToDisappear() {
         const preloader = this.page.locator("div.loader .wheel");
-
-        let preloaderAppeared = (await preloader.count()) > 0;
-        if (!preloaderAppeared) await sleep(500);
-        preloaderAppeared = (await preloader.count()) > 0;
-
-        await preloader.waitFor({
-            state: "detached",
-            timeout: 30_000,
-        });
-        return preloaderAppeared;
+        return this.waitForOptionalLoaderToDisappear(preloader, 30_000);
     }
 
     private async waitForModuleFrameToLoad() {
@@ -89,30 +100,14 @@ export class BotUtilities {
             .locator("div.loading__image-before-loader")
             .last();
 
-        let iframeLoaderAppeared = (await iframeLoader.count()) > 0;
-        if (!iframeLoaderAppeared) await sleep(500);
-        iframeLoaderAppeared = (await iframeLoader.count()) > 0;
-
-        let tries = 100;
-        while (tries-- > 0) {
-            if (!(await iframeLoader.count())) break;
-            if ((await iframeLoader.getAttribute("class"))?.includes("remove-loader")) {
-                break;
-            }
-            await sleep(300);
-        }
-        return iframeLoaderAppeared;
+        return this.waitForOptionalLoaderToDisappear(iframeLoader, 30_000);
     }
 
     private async waitForCourseContentToLoad() {
         await this.page.waitForLoadState("load");
         const courseProgressLoadingIndicator = this.getModuleFrame().locator(".loading__content");
 
-        if (!(await courseProgressLoadingIndicator.count())) await sleep(500);
-        await courseProgressLoadingIndicator.waitFor({
-            state: "detached",
-            timeout: 60_000,
-        });
+        return this.waitForOptionalLoaderToDisappear(courseProgressLoadingIndicator, 60_000);
     }
 
     async waitForLoadersToDisappear(retry = 3) {
@@ -122,14 +117,17 @@ export class BotUtilities {
         // one hint for something like that is the next button being disabled
         await this.waitForNextBtnToBeEnabled();
         const iframeLoaderAppeared = await this.waitForModuleFrameToLoad();
+        const courseContentLoaderAppeared = await this.waitForCourseContentToLoad();
 
-        if (preloaderAppeared && !iframeLoaderAppeared && retry > 0) {
-            await sleep(3000);
+        if (
+            preloaderAppeared &&
+            !iframeLoaderAppeared &&
+            !courseContentLoaderAppeared &&
+            retry > 0
+        ) {
             await this.waitForLoadersToDisappear(retry - 1);
             return;
         }
-
-        await this.waitForCourseContentToLoad();
     }
 
     async goToNextSubModule(retry = true): Promise<boolean> {

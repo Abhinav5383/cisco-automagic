@@ -127,7 +127,7 @@ export class CiscoBot {
 
         if (await click(courseLink, 30_000)) {
             console.log("Navigating to the course...");
-            await sleep(30_000);
+            await sleep(3000);
         } else {
             console.log("Could not find the course link automatically.");
             await waitForUserIntervention(
