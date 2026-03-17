@@ -140,21 +140,21 @@ export class ExamHelper {
     }
 
     static async determineQuestionType(question: Locator | string): Promise<QuestionType | null> {
-        const q_Loc = typeof question === "string" ? null : question;
+        const locator = typeof question === "string" ? null : question;
         const classList =
             typeof question === "string" ? question : await question.getAttribute("class");
 
-        if (classList?.includes("mcq") || (await q_Loc?.locator(".mcq").count())) {
+        if (classList?.includes("mcq") || (await locator?.locator(".mcq").count())) {
             return QuestionType.MCQ;
         } else if (
             classList?.includes("objectmatching") ||
-            (await q_Loc?.locator(".objectmatching").count())
+            (await locator?.locator(".objectmatching").count())
         ) {
             return QuestionType.OBJECT_MATCH;
         } else if (
             classList?.includes("matching") ||
             classList?.includes("matchinggraphic") ||
-            (await q_Loc?.locator(".matching, .matchinggraphic").count())
+            (await locator?.locator(".matching, .matchinggraphic").count())
         ) {
             return QuestionType.DROPDOWN_MATCH;
         }
