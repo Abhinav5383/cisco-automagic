@@ -41,7 +41,7 @@ export class BotUtilities {
         return text.trim();
     }
 
-    async isSectionCompleted(sectionHeader: string) {
+    isSectionCompleted(sectionHeader: string) {
         if (!sectionHeader?.trim() || sectionHeader.toLowerCase().startsWith("complete")) {
             return true;
         } else {
