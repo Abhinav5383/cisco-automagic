@@ -245,21 +245,26 @@ class VideoPlayerActivity extends ActivityBase {
         await this.playVideo(frame);
         await this.skipToEnd(frame);
 
-        let tries = 15;
+        const playingState = frame.locator("div.vjs-playing");
+        const endedState = frame.locator("div.vjs-ended");
+        const pausedState = frame.locator("div.vjs-paused");
+
+        let tries = 40;
 
         while (tries-- > 0) {
-            if (await frame.locator("div.vjs-playing").count()) {
-                // video is playing, wait a bit
-                await sleep(4000);
-            }
+            if (await endedState.count()) break;
 
-            if (await frame.locator("div.vjs-ended").count()) break;
-            await sleep(1000);
-            if (await frame.locator("div.vjs-ended").count()) break;
-
-            if (await frame.locator("div.vjs-paused").count()) {
+            if (await pausedState.count()) {
                 await this.playVideo(frame);
+                continue;
             }
+
+            if (await playingState.count()) {
+                await sleep(250);
+                continue;
+            }
+
+            await sleep(300);
         }
     }
 
