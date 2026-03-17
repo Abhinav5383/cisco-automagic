@@ -139,20 +139,6 @@ export class ExamHelper {
         }
     }
 
-    isModuleTypeExam(_text: string | null) {
-        if (!_text) return false;
-        const text = _text.toLowerCase();
-
-        if (
-            text.includes("module") &&
-            (text.includes("test") || text.includes("quiz") || text.includes("assessment"))
-        ) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
     static async determineQuestionType(question: Locator | string): Promise<QuestionType | null> {
         const q_Loc = typeof question === "string" ? null : question;
         const classList =
@@ -242,8 +228,8 @@ export class ExamHelper {
             for (const question of questions) {
                 const answer = await ExamHelper.extractAnswer(question);
                 if (answer) {
-                    if (!ANSWERS.has(answer.qestionId)) newAnswersFound++;
-                    ANSWERS.set(answer.qestionId, answer);
+                    if (!ANSWERS.has(answer.questionId)) newAnswersFound++;
+                    ANSWERS.set(answer.questionId, answer);
                 }
             }
 
@@ -410,7 +396,7 @@ export class ExamHelper {
             let answer: AnswerObj;
             if (questionType === QuestionType.MCQ) {
                 answer = {
-                    qestionId: questionId,
+                    questionId: questionId,
                     type: QuestionType.MCQ,
                     answer: correctOptions.map((opt) => opt.toString()),
                 };
@@ -507,7 +493,7 @@ export class MCQ_Helper extends QuestionHelperBase {
         if (!questionId) return null;
 
         const AnswerObj: AnswerObj = {
-            qestionId: questionId,
+            questionId: questionId,
             type: QuestionType.MCQ,
             answer: [] as string[],
         };
@@ -602,7 +588,7 @@ export class MCQ_Helper extends QuestionHelperBase {
         return {
             type: QuestionType.MCQ,
             answer: answers,
-            qestionId: questionId,
+            questionId: questionId,
         } satisfies AnswerObj;
     }
 }
@@ -698,7 +684,7 @@ export class ObjectMatch_Helper extends QuestionHelperBase {
         if (!questionId) return null;
 
         const AnswerObj: AnswerObj = {
-            qestionId: questionId,
+            questionId: questionId,
             type: QuestionType.OBJECT_MATCH,
             answer: new Map<string, string>(),
         };
@@ -836,7 +822,7 @@ export class MatchingActivity_Helper extends QuestionHelperBase {
         const hasFeedbackTable = (await this.feedbackTable.count()) > 0;
 
         const AnswerObj: AnswerObj = {
-            qestionId: questionId,
+            questionId: questionId,
             type: QuestionType.DROPDOWN_MATCH,
             answer: hasFeedbackTable
                 ? await this.extractAnswerFromFeedbackTable()
