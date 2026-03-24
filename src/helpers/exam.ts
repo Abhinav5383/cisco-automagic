@@ -125,7 +125,11 @@ export class ExamHelper {
     }
 
     private async isSubmitBtnDisabled() {
-        return (await this.questionSubmitBtn.getAttribute("class"))?.includes("is-disabled");
+        try {
+            return (await this.questionSubmitBtn.getAttribute("class"))?.includes("is-disabled");
+        } catch {
+            return false;
+        }
     }
 
     private async submitOrSkipQuestion() {
@@ -248,7 +252,7 @@ export class ExamHelper {
         return (await this.questionSubmitBtn.count()) > 0;
     }
 
-    private async answerQuestionsList() {
+    private async answerQuestionsList(isFinalTest: boolean) {
         await this.beginExam();
 
         let questionsCounter = 0;
@@ -256,7 +260,7 @@ export class ExamHelper {
         let prevQuestionId = "";
 
         while (true) {
-            if (ANSWERS.size <= 1) {
+            if (isFinalTest) {
                 await this.utils.waitForLoadersToDisappear(1);
                 // just a double check
                 if (!(await this.isQuestionInView())) {
@@ -343,10 +347,11 @@ export class ExamHelper {
         await this.beginExam();
         await this.utils.waitForLoadersToDisappear();
 
-        if (!(await this.hasCountdownTimer())) {
+        const isFinalTest = await this.hasCountdownTimer();
+        if (!isFinalTest) {
             await this.gatherAnswers();
         }
-        await this.answerQuestionsList();
+        await this.answerQuestionsList(isFinalTest);
     }
 
     private monitorRequestsForAnswers() {
@@ -365,7 +370,7 @@ export class ExamHelper {
                 }
             } else if (resUrl.includes("/v2/answerQuestion")) {
                 try {
-                    resData = ((await res.json()) as NextQues_Response).nextQuestion.component;
+                    resData = ((await res.json()) as NextQues_Response)?.nextQuestion?.component;
                 } catch (e) {
                     console.error("Failed to parse response for /v2/answerQuestion:", e);
                 }
