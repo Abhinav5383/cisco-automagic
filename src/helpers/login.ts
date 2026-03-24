@@ -5,6 +5,8 @@ export async function doLogin(page: Page, username: string, password: string, is
     await page.goto("https://www.netacad.com/dashboard");
     await sleep(2000);
     await page.waitForLoadState("load");
+    await sleep(2000);
+    await page.waitForLoadState("load");
 
     const usernameInput = page.locator("input#username");
     if (!(await usernameInput.count()) && page.url().includes("www.netacad.com/dashboard")) {

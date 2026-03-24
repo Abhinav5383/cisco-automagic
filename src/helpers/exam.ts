@@ -256,12 +256,14 @@ export class ExamHelper {
         let prevQuestionId = "";
 
         while (true) {
-            await this.utils.waitForLoadersToDisappear(1);
-
-            // just a double check
-            if (!(await this.isQuestionInView())) {
+            if (ANSWERS.size <= 1) {
                 await this.utils.waitForLoadersToDisappear(1);
+                // just a double check
+                if (!(await this.isQuestionInView())) {
+                    await this.utils.waitForLoadersToDisappear(1);
+                }
             }
+
             if (!(await this.isQuestionInView())) {
                 console.log("No question in view, assuming exam is complete.");
                 break;
