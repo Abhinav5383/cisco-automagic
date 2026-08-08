@@ -40,21 +40,22 @@ export class SentenceSequenceActivity extends ActivityBase {
         const dropDownStrip = item.locator(".stacker__item-state .dropdownstrip");
         const targetOption = dropDownStrip.locator(`button[data-target='${position}']`);
 
-        if (!(await targetOption.count())) return; // when the item is already on the same position
         await jsClick(targetOption);
     }
 
     private async solveSequence(answers: Map<number, string>) {
         const items = await this.sequenceItems;
+        console.log("CorrectSequence", answers);
 
         for (let i = items.length; i > 0; i--) {
             const targetItem = answers.get(i);
             const item = this.sequenceWidget.locator(
                 `ul li.sentenceSequence[data-itemid='${targetItem}']`,
             );
+            console.log(`${targetItem} -> ${i}`);
 
             await this.updatePosition(item, i);
-            await sleep(2000);
+            await sleep(2500);
         }
 
         await jsClick(this.submitBtn);
@@ -90,7 +91,7 @@ export class SentenceSequenceActivity extends ActivityBase {
         await scrollIntoView(this.sequenceWidget);
 
         if (await this.resetBtn.count()) {
-            await jsClick(this.resetBtn);
+            console.log("Already ordered!");
         }
 
         const answers = await this.getCorrectPositions();
