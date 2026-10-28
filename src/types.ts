@@ -20,3 +20,22 @@ export type AnswerObj =
 
 export type BruteForceTestFn = () => Promise<boolean>;
 export type BruteForceResetFn = () => Promise<void>;
+
+export interface QuestionComponentResponse {
+    _id: string;
+    _component: string;
+    _smvWiseScoring: {
+        outcomes: {
+            interpretvar: { interpret: string }[];
+        };
+    };
+    _items: {
+        text: string;
+    }[];
+}
+
+export interface NextQues_Response {
+    nextQuestion: {
+        component: QuestionComponentResponse;
+    };
+}

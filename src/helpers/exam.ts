@@ -1,4 +1,4 @@
-import type { Locator } from "@playwright/test";
+import type { Locator, Response } from "@playwright/test";
 import { sleep } from "bun";
 import type { BotUtilities } from "~/helpers/bot-utils";
 import { click, forceClick, jsClick } from "~/helpers/misc";
@@ -7,6 +7,8 @@ import {
     type AnswerObj,
     type BruteForceResetFn,
     type BruteForceTestFn,
+    type NextQues_Response,
+    type QuestionComponentResponse,
     QuestionType,
 } from "~/types";
 import { combinations } from "~/utils";
@@ -14,6 +16,7 @@ import { waitForUserIntervention } from "~/utils/prompt";
 import { MatchingActivity_Helper } from "./activity/matching-assessment";
 
 const ANSWERS = new Map<string, AnswerObj>();
+let listeningForAnswers = false;
 
 export class ExamHelper {
     utils: BotUtilities;
@@ -108,7 +111,7 @@ export class ExamHelper {
                 .locator("div.component .final-screen-inner .assessment-status")
                 .waitFor({
                     state: "attached",
-                    timeout: 75_000,
+                    timeout: 90_000,
                 });
         } catch {}
     }
@@ -172,6 +175,8 @@ export class ExamHelper {
             await forceClick(this.examStartButton);
             await sleep(250);
         }
+
+        await this.utils.waitForLoadersToDisappear();
 
         if (!isRetry && (await this.examStartButton.isVisible())) {
             await sleep(1000);
@@ -256,7 +261,7 @@ export class ExamHelper {
         return (await this.questionSubmitBtn.count()) > 0;
     }
 
-    private async answerQuestionsList() {
+    private async answerQuestionsList(isFinalTest: boolean) {
         await this.beginExam();
 
         let questionsCounter = 0;
@@ -264,6 +269,8 @@ export class ExamHelper {
         let prevQuestionId = "";
 
         while (true) {
+            if (isFinalTest) await this.utils.waitForLoadersToDisappear();
+
             if (!(await this.isQuestionInView())) {
                 console.log("No question in view, assuming exam is complete.");
                 break;
@@ -274,6 +281,7 @@ export class ExamHelper {
                 console.log("No more question elements!");
                 break;
             }
+
             const questionId = await ExamHelper.getUniqueQuestionId(question);
             if (!questionId) {
                 console.log("Question without ID, skipping...");
@@ -282,7 +290,7 @@ export class ExamHelper {
             }
 
             if (questionId === prevQuestionId) {
-                await sleep(150);
+                isFinalTest ? await this.utils.waitForLoadersToDisappear() : await sleep(150);
 
                 const newLastQuestion = (await this.questionElements).pop();
                 const newQuestionId = newLastQuestion
@@ -337,19 +345,106 @@ export class ExamHelper {
     }
 
     async doExam() {
+        this.monitorRequestsForAnswers();
         if (await ExamHelper.isExamComplete(this.section)) return;
         if (await this.examResetButton.isVisible()) await click(this.examResetButton);
 
         await this.beginExam();
-        await this.utils.waitForLoadersToDisappear();
 
         const isFinalTest = await this.hasCountdownTimer();
-        if (isFinalTest) {
-            console.log("Cannot do Final Exam! Do it yourself :P");
+        if (!isFinalTest) {
+            await this.gatherAnswers();
+        }
+
+        await this.answerQuestionsList(isFinalTest);
+    }
+
+    private monitorRequestsForAnswers() {
+        if (listeningForAnswers) return;
+        listeningForAnswers = true;
+
+        this.utils.page.on("response", async (res) => {
+            await ExamHelper.extractAnswerFromApiResponse(res);
+        });
+    }
+
+    private static async extractAnswerFromApiResponse(res: Response) {
+        const resUrl = res.url();
+
+        let resData: QuestionComponentResponse | null = null;
+        if (resUrl.includes("/v3/getQuestionAt")) {
+            try {
+                resData = ((await res.json()) as { component: QuestionComponentResponse })
+                    .component;
+            } catch (e) {
+                console.error("Failed to parse response for /v3/getQuestionAt:", e);
+            }
+        } else if (resUrl.includes("/v3/answerQuestion")) {
+            try {
+                resData = ((await res.json()) as NextQues_Response)?.nextQuestion?.component;
+            } catch (e) {
+                console.error("Failed to parse response for /v3/answerQuestion:", e);
+            }
+        }
+
+        if (!resData) return;
+
+        const correctOptionsStr = resData._smvWiseScoring.outcomes.interpretvar[0]?.interpret;
+        if (!correctOptionsStr) {
+            console.warn(
+                "No interpret string found in response, cannot extract correct options.",
+                resData,
+            );
             return;
         }
-        await this.gatherAnswers();
-        await this.answerQuestionsList();
+
+        const correctOptions = ExamHelper.correctOptionsFromApiStr(correctOptionsStr);
+        if (!correctOptions.length) {
+            console.warn(
+                `Could not extract any correct options from interpret string: "${correctOptionsStr}"`,
+            );
+            return;
+        }
+
+        const questionId = resData._id;
+        const questionType = await ExamHelper.determineQuestionType(resData._component);
+        if (!questionType) return;
+
+        let answer: AnswerObj;
+        if (questionType === QuestionType.MCQ) {
+            answer = {
+                questionId: questionId,
+                type: QuestionType.MCQ,
+                answer: correctOptions.map((opt) => opt.toString()),
+            };
+
+            ANSWERS.set(questionId, answer);
+            console.log(`Extracted answer:`, answer);
+        } else {
+            console.log(
+                `Doesn't support extracting the answer for ${questionType} from the API response.`,
+            );
+        }
+    }
+
+    private static correctOptionsFromApiStr(str: string): number[] {
+        const tokens = str.split(" ");
+        const correctOptions: number[] = [];
+
+        for (let i = 0; i < tokens.length; i++) {
+            if (tokens[i] === "Option") {
+                const correctOption = tokens[i + 1]?.trim();
+                if (!correctOption) continue;
+
+                const parsed = Number.parseInt(correctOption, 10);
+                if (!Number.isNaN(parsed)) {
+                    // minus 1 because the options in the string are 1-indexed
+                    correctOptions.push(parsed - 1);
+                }
+            }
+        }
+
+        return correctOptions;
     }
 }
 

@@ -21,6 +21,10 @@ export class BotUtilities {
         return this.page.locator("div.fullscreen button:has(.icon-right-arrow)");
     }
 
+    get prevBtn() {
+        return this.page.locator("div.fullscreen button:has(.icon-left-arrow)");
+    }
+
     getSectionHeader(section: Locator) {
         const header = section
             .locator(".component__header .component__content h1")
@@ -79,15 +83,25 @@ export class BotUtilities {
         return true;
     }
 
-    async waitForNextBtnToBeEnabled() {
-        let tries = 100;
-        while (tries--) {
-            if (!(await this.nextBtn.count())) return;
-            if ((await this.nextBtn.getAttribute("disabled")) === null) return;
-            await sleep(300);
-        }
+    async waitForAnyBtnToBeEnabled(btns: Locator[]) {
+        try {
+            let tries = 300;
+            while (tries--) {
+                const attrs = await Promise.allSettled(
+                    btns.map((btn) => btn.getAttribute("disabled")),
+                );
 
-        return;
+                for (const item of attrs) {
+                    if (item.status === "rejected") continue;
+
+                    // null indicates the attribute is absent on the Element
+                    // when any of the btns is enabled, return
+                    if (item.value === null) return;
+                }
+
+                await sleep(100);
+            }
+        } catch {}
     }
 
     private async waitForPreloaderToDisappear() {
@@ -114,8 +128,9 @@ export class BotUtilities {
         const preloaderAppeared = await this.waitForPreloaderToDisappear();
 
         // Sometimes the preloader disappears but the frame doesn't start loading
-        // one hint for something like that is the next button being disabled
-        await this.waitForNextBtnToBeEnabled();
+        // one hint for something like that is the next/prev button being disabled
+        await this.waitForAnyBtnToBeEnabled([this.nextBtn, this.prevBtn]);
+
         const iframeLoaderAppeared = await this.waitForModuleFrameToLoad();
         const courseContentLoaderAppeared = await this.waitForCourseContentToLoad();
 
@@ -126,14 +141,13 @@ export class BotUtilities {
             retry > 0
         ) {
             await this.waitForLoadersToDisappear(retry - 1);
-            return;
         }
     }
 
     async goToNextSubModule(retry = true): Promise<boolean> {
         const prevPageMark = await this.getFirstNonEmptyHeaderText();
 
-        await this.waitForNextBtnToBeEnabled();
+        await this.waitForAnyBtnToBeEnabled([this.nextBtn, this.prevBtn]);
         if (!(await this.nextBtn.count())) return false;
         if ((await this.nextBtn.getAttribute("disabled")) !== null) return false;
 
@@ -142,9 +156,9 @@ export class BotUtilities {
 
         const newPageMark = await this.getFirstNonEmptyHeaderText();
         if (retry && (prevPageMark || newPageMark) && prevPageMark === newPageMark) {
-            let tries = 30;
+            let tries = 60;
             while (tries-- > 0) {
-                await sleep(300);
+                await sleep(150);
                 const newPageMark = await this.getFirstNonEmptyHeaderText();
                 if ((prevPageMark || newPageMark) && prevPageMark !== newPageMark) return true;
             }
